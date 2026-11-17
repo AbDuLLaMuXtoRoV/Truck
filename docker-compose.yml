@@ -1,0 +1,74 @@
+# Full stack: Postgres, Redis, API, Celery workers + beat, dashboard.
+#   cp backend/.env.example backend/.env   (fill in secrets)
+#   docker compose up --build
+#   docker compose exec api python -m app.cli create-admin --email you@company.com --password '...'
+x-backend: &backend
+  build: ./backend
+  env_file: ./backend/.env
+  environment:
+    ENV: prod
+    DATABASE_URL: postgresql+asyncpg://smart:smart@postgres:5432/smart_truck
+    REDIS_URL: redis://redis:6379/0
+    TASK_QUEUE: celery
+    STORAGE_DIR: /srv/storage
+  volumes:
+    - storage:/srv/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_started
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smart
+      POSTGRES_PASSWORD: smart
+      POSTGRES_DB: smart_truck
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart -d smart_truck"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --timeout-keep-alive 65"
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *backend
+    command: celery -A app.workers.celery_app worker -Q default --concurrency 4 --loglevel INFO
+
+  # Single process so the Telegram send rate limiter holds [A5].
+  worker-telegram:
+    <<: *backend
+    command: celery -A app.workers.celery_app worker -Q telegram_out --concurrency 1 --loglevel INFO
+
+  beat:
+    <<: *backend
+    command: celery -A app.workers.celery_app beat --loglevel INFO
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://api:8000   # the dashboard proxies /api to the api service
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  storage:
