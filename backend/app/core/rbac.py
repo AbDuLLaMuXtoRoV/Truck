@@ -71,17 +71,26 @@ class Actor:
     role: Role | None = None
     department_id: uuid.UUID | None = None
     permissions: frozenset[Perm] = field(default_factory=frozenset)
+    # Multi-company: the user's own company and every company they may switch to.
+    home_company_id: uuid.UUID | None = None
+    company_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
 
     @classmethod
-    def for_user(cls, user) -> "Actor":
+    def for_user(
+        cls, user, *, company_id: uuid.UUID | None = None, company_ids: frozenset[uuid.UUID] | None = None
+    ) -> "Actor":
         role = Role(user.role)
+        selected = company_id or user.company_id
         return cls(
             kind=ActorKind.USER,
-            company_id=user.company_id,
+            company_id=selected,
             user_id=user.id,
             role=role,
-            department_id=user.department_id,
+            # Department scoping only applies inside the user's own company.
+            department_id=user.department_id if selected == user.company_id else None,
             permissions=ROLE_PERMISSIONS[role],
+            home_company_id=user.company_id,
+            company_ids=company_ids or frozenset({user.company_id}),
         )
 
     @classmethod

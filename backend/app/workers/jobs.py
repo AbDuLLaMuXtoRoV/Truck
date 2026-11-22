@@ -18,7 +18,8 @@ from app.domain.enums import (
 )
 from app.core.rbac import Actor
 from app.models import Attachment, Message, Notification, Task, TelegramUser, User, utcnow
-from app.services.analysis import groups_with_stale_pending, run_group_analysis
+from app.services.analysis import channels_with_stale_pending, run_channel_analysis
+from app.services.response import run_response_checks
 from app.services.sla_jobs import run_sla_checks
 from app.services.storage import get_storage
 from app.services.tasks import company_four_eyes
@@ -28,24 +29,53 @@ from app.telegram.client import TelegramClient, TelegramError
 log = logging.getLogger(__name__)
 
 
-async def job_analyze_group(group_id: uuid.UUID) -> str:
+async def job_analyze_channel(kind: str, channel_id: uuid.UUID) -> str:
     from app.workers.queue import enqueue_analysis
 
-    outcome = await run_group_analysis(session_factory(), group_id)
+    outcome = await run_channel_analysis(session_factory(), kind, channel_id)
     if outcome.status == "waiting" and outcome.retry_after_seconds:
-        await enqueue_analysis(group_id, delay_seconds=outcome.retry_after_seconds)
-    log.info("analysis group=%s status=%s created=%s", group_id, outcome.status, outcome.tasks_created)
+        await enqueue_analysis(channel_id, delay_seconds=outcome.retry_after_seconds, kind=kind)
+    log.info("analysis %s=%s status=%s created=%s", "group" if kind == "telegram" else "mailbox", channel_id,
+             outcome.status, outcome.tasks_created)
     return outcome.status
+
+
+async def job_analyze_group(group_id: uuid.UUID) -> str:
+    return await job_analyze_channel("telegram", group_id)
 
 
 async def job_sweep_pending() -> int:
     from app.workers.queue import enqueue_analysis
 
     async with session_factory()() as session:
-        group_ids = await groups_with_stale_pending(session)
-    for gid in group_ids:
-        await enqueue_analysis(gid, delay_seconds=0)
-    return len(group_ids)
+        channels = await channels_with_stale_pending(session)
+    for kind, cid in channels:
+        await enqueue_analysis(cid, delay_seconds=0, kind=kind)
+    return len(channels)
+
+
+async def job_response_checks() -> dict:
+    """5-minute response SLA ladder (3 / 5 / 10 min) — runs every 15 s."""
+    async with session_factory()() as session:
+        counts = await run_response_checks(session)
+        await session.commit()
+    return counts
+
+
+async def job_coverage_checks() -> dict:
+    from app.services.shifts import run_coverage_checks
+
+    async with session_factory()() as session:
+        counts = await run_coverage_checks(session)
+        await session.commit()
+    return counts
+
+
+async def job_gmail_sync() -> int:
+    """Poll every connected mailbox (Gmail history API). Pub/Sub push can trigger it sooner."""
+    from app.services.gmail import sync_all_mailboxes
+
+    return await sync_all_mailboxes(session_factory())
 
 
 async def job_sla_checks() -> dict:
@@ -62,6 +92,19 @@ async def job_download_attachment(attachment_id: uuid.UUID) -> str:
         if att is None or att.status != AttachmentStatus.PENDING:
             return "skip"
         message = await session.get(Message, att.message_id)
+        if att.tg_file_id is None and att.source_ref and message is not None and message.mailbox_id:
+            # Email attachment: fetch through the Gmail API.
+            from app.services.gmail import GmailError, download_attachment
+
+            try:
+                data = await download_attachment(session, att, message)
+                ext = mimetypes.guess_extension(att.mime_type or "") or ""
+                att.storage_key = get_storage().save(f"{att.company_id}/{utcnow():%Y/%m}/{att.id}{ext}", data)
+                att.status = AttachmentStatus.DOWNLOADED
+            except GmailError as exc:
+                att.status, att.error = AttachmentStatus.FAILED, exc.message
+            await session.commit()
+            return att.status
         needs_transcript = (
             message is not None
             and att.kind in (MessageKind.VOICE, MessageKind.AUDIO, MessageKind.VIDEO)

@@ -1,6 +1,9 @@
 "use client";
 
-/** Simple (default) vs advanced UI, remembered per user in localStorage. */
+/**
+ * Simple vs advanced (CRM) UI, remembered per user in localStorage. Agents start in simple mode;
+ * supervisors and above start in the CRM.
+ */
 
 import { useSyncExternalStore } from "react";
 import { useAuth } from "./auth";
@@ -12,14 +15,20 @@ const listeners = new Set<() => void>();
 const memory = new Map<string, Mode>();
 const keyFor = (userId: string) => `smart-truck.mode.${userId}`;
 
-function read(userId: string | undefined): Mode {
-  if (!userId || typeof window === "undefined") return "simple";
+export function defaultMode(role: string | undefined): Mode {
+  return !role || role === "agent" ? "simple" : "advanced";
+}
+
+function read(userId: string | undefined, role: string | undefined): Mode {
+  const fallback = defaultMode(role);
+  if (!userId || typeof window === "undefined") return fallback;
   const mem = memory.get(userId);
   if (mem) return mem;
   try {
-    return window.localStorage.getItem(keyFor(userId)) === "advanced" ? "advanced" : "simple";
+    const v = window.localStorage.getItem(keyFor(userId));
+    return v === "advanced" || v === "simple" ? v : fallback;
   } catch {
-    return "simple";
+    return fallback;
   }
 }
 
@@ -52,9 +61,10 @@ function subscribe(fn: () => void): () => void {
 export function useMode(): Mode {
   const { me } = useAuth();
   const userId = me?.id;
+  const role = me?.role;
   return useSyncExternalStore(
     subscribe,
-    () => read(userId),
-    () => "simple",
+    () => read(userId, role),
+    () => defaultMode(role),
   );
 }

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.ai.glossary import render_glossary
 
-PROMPT_VERSION = "2026-11-15.3"  # .2: Uzbek + Russian title/summary; .3: photos and PDFs
+PROMPT_VERSION = "2026-11-22.1"  # CRM blueprint: message labels, issue fields, email, known loads
 
 
 @dataclass
@@ -53,21 +53,24 @@ class ExtractionRequest:
     open_tasks: list[OpenTaskSummary] = field(default_factory=list)
     truck_hints: list[str] = field(default_factory=list)
     attachments: list[AttachmentInput] = field(default_factory=list)
+    known_loads: list[str] = field(default_factory=list)  # TMS facts for loads mentioned in the window
 
     @property
     def new_refs(self) -> set[str]:
         return {m.ref for m in self.messages if m.is_new}
 
 
-SYSTEM_PROMPT = f"""You are the task-detection engine of a US trucking company's operations platform.
-Staff, dispatchers and drivers coordinate in Telegram groups. You read one window of a group chat and
-report (a) new actionable tasks and (b) updates to tasks that are already open. A human reviews your
-output; precision matters, but missing a real task is worse than proposing a doubtful one with low
-confidence.
+SYSTEM_PROMPT = f"""You are the issue-detection engine of a US trucking company's communications CRM.
+Staff, dispatchers, drivers, brokers and customers write in Telegram groups and by email. You read one
+window of a conversation and report (a) a label for every new message, (b) new actionable issues and
+(c) updates to issues that are already open. A human reviews your output; precision matters, but
+missing a real issue is worse than proposing a doubtful one with low confidence.
 
 ## Input
-- <chat>: group metadata. A "truck" group belongs to one truck (default_truck); "dispatch" and
-  "department" groups mention many trucks.
+- <chat>: channel metadata. kind "email" is a mailbox thread (messages show the subject); a "truck"
+  group belongs to one truck (default_truck); "dispatch" and "department" groups mention many trucks.
+- <known_loads>: facts from the company's TMS for load numbers mentioned in this window (truck,
+  trailer, driver). Use them to fill truck_unit, trailer_ref and driver_name.
 - <open_tasks>: tasks already being tracked for this chat or its trucks.
 - <messages>: messages in time order. status="context" messages were analysed before — use them only to
   understand the conversation. Only status="new" messages can produce new tasks or updates.
@@ -89,6 +92,17 @@ outcome, a load or appointment problem, an HR/paperwork request.
 Not tasks: greetings, thanks, "ok"/"+", jokes, pure location/status check calls with nothing to do,
 and problems that were raised and fully resolved within the same window.
 
+## Message labels
+Label every status="new" message exactly once:
+- actionable: asks for something or reports a problem (it may or may not create a new task — it can
+  also be an update to an open one);
+- informational: status, FYI, check call, thanks, greetings — nothing to do;
+- automated: system / bot / no-reply / out-of-office / notification email;
+- duplicate: repeats something already said or tracked;
+- spam: advertising or unrelated.
+requires_response is true when a person at the company should reply to the sender (questions,
+requests, problems, documents that need acknowledgement); false for FYI, thanks, automated mail.
+
 ## New task vs update
 - If a new message is about an existing open task (same truck and same problem), report a task_update
   for that task instead of a new task. Kinds: "progress" (work is happening / new info), "blocker"
@@ -102,7 +116,11 @@ and problems that were raised and fully resolved within the same window.
 - title_uz / summary_uz and title_ru / summary_ru: the same title and summary as staff would write
   them in Uzbek (Latin script) and in Russian. Keep terms the team says in English as they are
   (ELD, HOS, BOL, POD, PM, IFTA, lumper, detention), and keep numbers, amounts and truck units exact.
-- category: eld | dispatch | fleet_maintenance | accounting | documents | safety_compliance | hr | other.
+- category: eld | dispatch | fleet_maintenance | accounting | documents | safety_compliance | hr |
+  trailer | other.
+- issue_type: the specific kind of problem (detention, lumper, breakdown, tire, eld_error, ...).
+- trailer_ref, load_reference, driver_name: exactly as written or from <known_loads>; else null.
+- amount: the USD amount involved (a charge, fee, invoice or reimbursement), as a number; else null.
 - priority: P1 = safety, a truck that cannot move, accident, out-of-service, DOT inspection, HOS violation;
   P2 = revenue at risk today (load or appointment at risk, ELD down while driving); P3 = normal work;
   P4 = administrative with no time pressure.
@@ -149,6 +167,9 @@ def build_user_content(req: ExtractionRequest) -> str:
         f"now_utc: {req.now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
         f"truck_numbers_detected: {', '.join(req.truck_hints) or 'none'}",
         "</chat>",
+        "<known_loads>",
+        *([_escape(x) for x in req.known_loads] or ["none"]),
+        "</known_loads>",
         "<open_tasks>",
     ]
     if req.open_tasks:

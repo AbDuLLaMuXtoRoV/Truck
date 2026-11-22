@@ -150,6 +150,9 @@ async def _detail(session, task: Task, actor: Actor) -> TaskDetailOut:
     messages = await serialize_messages(session, [m for _, m in links])
     four_eyes = await svc.company_four_eyes(session, task.company_id)
     manages = can_manage_task(actor, task)
+    from app.api.routes.crm import task_crm_extras
+
+    escalations, response = await task_crm_extras(session, task)
     return TaskDetailOut(
         **base.model_dump(),
         source_text=task.source_text,
@@ -171,6 +174,8 @@ async def _detail(session, task: Task, actor: Actor) -> TaskDetailOut:
         allowed_transitions=svc.allowed_transitions(task, actor, four_eyes),
         can_edit=manages,
         can_assign=manages and TaskStatus(task.status) in OPEN_STATUSES,
+        escalations=escalations,
+        response=response,
     )
 
 

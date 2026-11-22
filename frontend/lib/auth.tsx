@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, clearToken, getToken, setToken } from "./api";
+import { ApiError, api, clearToken, getToken, setToken } from "./api";
+import { getCompanyScope, setCompanyScope } from "./company";
 import { getLang, hasStoredLang, isLang, setLang, type Lang } from "./i18n";
 import type { MeOut, Permission } from "./types";
 
@@ -18,6 +19,8 @@ interface AuthContextValue {
   signIn: (token: string, me: MeOut) => void;
   signOut: () => void;
   retry: () => void;
+  /** Re-read /auth/me (after switching company: name, time zone and permissions follow the scope). */
+  reloadMe: () => Promise<void>;
   /** Switch the UI language; when signed in it is also saved on the server (PATCH /api/me). */
   changeLanguage: (lang: Lang) => Promise<void>;
 }
@@ -51,6 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        // a remembered company this account cannot open (another user signed in): back to the home company
+        if (getCompanyScope() && err instanceof ApiError && (err.status === 403 || err.status === 404 || err.status === 400)) {
+          setCompanyScope(null);
+          setAttempt((a) => a + 1);
+          return;
+        }
         if (!getToken()) {
           setStatus("anonymous"); // 401: token was cleared
         } else {
@@ -62,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [attempt]);
 
   const signIn = useCallback((token: string, user: MeOut) => {
+    setCompanyScope(null); // a new session starts in the home company
     setToken(token);
     setMe(user);
     setError(null);
@@ -86,6 +96,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // full reload on purpose: clears the in-memory response cache so no data outlives the session
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/login");
+  }, []);
+
+  const reloadMe = useCallback(async () => {
+    setMe(await api.me());
   }, []);
 
   const retry = useCallback(() => {
@@ -116,9 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signOut,
       retry,
+      reloadMe,
       changeLanguage,
     };
-  }, [status, me, error, signIn, signOut, retry, changeLanguage]);
+  }, [status, me, error, signIn, signOut, retry, reloadMe, changeLanguage]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

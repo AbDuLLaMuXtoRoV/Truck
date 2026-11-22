@@ -1,46 +1,59 @@
 "use client";
 
 import {
+  BarChart3,
   Bell,
+  Building2,
+  CalendarClock,
+  Check,
+  ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Inbox,
   LayoutDashboard,
+  Layers,
   ListTodo,
   LogOut,
   Menu,
   Monitor,
   Moon,
+  Plug,
   Search,
-  SlidersHorizontal,
   Send,
+  Settings,
+  Siren,
+  SlidersHorizontal,
   Sun,
-  Truck,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage, paths } from "@/lib/api";
 import { useMe } from "@/lib/auth";
+import { RANGES, setCompanyScope, setRange, useCompanyScope, useRange, type RangeDays } from "@/lib/company";
+import { deptLabel } from "@/lib/crm";
 import { tzAbbreviation, useFmt } from "@/lib/format";
 import { DATA_CHANGED, useApi, useDismiss, useNow } from "@/lib/hooks";
 import type { Key } from "@/lib/i18n";
 import { setMode, useMode } from "@/lib/mode";
+import { useReference } from "@/lib/reference";
 import { setTheme, useTheme, type Theme } from "@/lib/theme";
-import type { BadgesOut, NotificationOut, Permission, TelegramLinkOut, UnreadCountOut } from "@/lib/types";
+import type { BadgesOut, IntegrationsOut, NotificationOut, Permission, TelegramLinkOut, UnreadCountOut } from "@/lib/types";
 import { Avatar } from "./avatars";
-import { LogoMark, Wordmark } from "./brand";
+import { LogoMark } from "./brand";
 import { CommandPalette } from "./CommandPalette";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-import { Button, Dropdown, Empty, IconButton, Kbd, MenuItem, Skeleton, Toggle, cx, focusRing } from "./ui";
+import { useToast } from "./toast";
+import { Button, Dropdown, Empty, IconButton, MenuItem, Skeleton, Toggle, cx, focusRing } from "./ui";
 
 // --------------------------------------------------------------------------- breadcrumb context
 
 export const CrumbContext = createContext<(label: string | null) => void>(() => {});
 
-/** Lets a page add a last breadcrumb segment (e.g. the task code). */
+/** Lets a page add a last breadcrumb segment (e.g. the task code). Kept for pages; the CRM top bar shows the product name. */
 export function useCrumb(label: string | null): void {
   const set = useContext(CrumbContext);
   useEffect(() => {
@@ -60,14 +73,25 @@ interface NavItem {
   icon: ReactNode;
   badge?: BadgeKey;
   badgeTone?: "danger" | "accent" | "warning";
+  ownerOnly?: boolean;
+  /** green dot when an integration is connected */
+  dot?: boolean;
 }
 
-const NAV: NavItem[] = [
-  { href: "/", label: "nav.overview", perm: "dashboard.read", icon: <LayoutDashboard /> },
-  { href: "/review", label: "nav.review", perm: "tasks.review", icon: <Inbox />, badge: "needs_review", badgeTone: "accent" },
-  { href: "/tasks", label: "nav.tasks", icon: <ListTodo />, badge: "overdue", badgeTone: "danger" },
-  { href: "/trucks", label: "nav.trucks", perm: "dashboard.read", icon: <Truck /> },
-  { href: "/groups", label: "nav.groups", perm: "groups.read", icon: <Send />, badge: "pending_groups", badgeTone: "warning" },
+const NAV_TOP: NavItem[] = [
+  { href: "/", label: "crm.nav.dashboard", perm: "dashboard.read", icon: <LayoutDashboard /> },
+  { href: "/inbox", label: "crm.nav.inbox", perm: "dashboard.read", icon: <Inbox />, badge: "unanswered", badgeTone: "danger" },
+  { href: "/tasks", label: "crm.nav.issues", icon: <ListTodo />, badge: "my_open", badgeTone: "accent" },
+  { href: "/escalations", label: "crm.nav.escalations", perm: "dashboard.read", icon: <Siren />, badge: "overdue_responses", badgeTone: "danger" },
+  { href: "/companies", label: "crm.nav.companies", icon: <Building2 />, ownerOnly: true },
+];
+
+const NAV_BOTTOM: NavItem[] = [
+  { href: "/shifts", label: "crm.nav.shifts", icon: <CalendarClock />, badge: "pending_handovers", badgeTone: "warning" },
+  { href: "/reports", label: "crm.nav.reports", perm: "dashboard.read", icon: <BarChart3 /> },
+  { href: "/team", label: "crm.nav.team", perm: "users.manage", icon: <Users /> },
+  { href: "/integrations", label: "crm.nav.integrations", perm: "groups.manage", icon: <Plug />, dot: true },
+  { href: "/settings", label: "crm.nav.settings", perm: "groups.read", icon: <Settings /> },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -100,10 +124,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
-  const [crumb, setCrumb] = useState<string | null>(null);
-  const items = NAV.filter((n) => !n.perm || can(n.perm));
-  const badges = useApi<BadgesOut>(can("dashboard.read") ? paths.badges() : null, { refreshMs: 60000 });
+  const [, setCrumb] = useState<string | null>(null);
+  const allowed = (n: NavItem) => (!n.perm || can(n.perm)) && (!n.ownerOnly || me.role === "owner");
+  const top = NAV_TOP.filter(allowed);
+  const bottom = NAV_BOTTOM.filter(allowed);
+  const badges = useApi<BadgesOut>(can("dashboard.read") ? paths.badges() : null, { refreshMs: 15000 });
+  const integrations = useApi<IntegrationsOut>(can("groups.manage") ? paths.integrations() : null, { refreshMs: 120000 });
   const { reload: reloadBadges } = badges;
+  const connected = integrations.data
+    ? integrations.data.telegram.connected || integrations.data.gmail.mailboxes.some((m) => m.status === "connected")
+    : false;
 
   // counts follow local changes right away (approve, transition, group enabled, …), not only the poll
   useEffect(() => {
@@ -140,15 +170,16 @@ export function Shell({ children }: { children: ReactNode }) {
     });
   }
 
-  const current = items.find((n) => isActive(pathname, n.href));
-  const paletteNav = items.map((n) => ({ href: n.href, label: t(n.label), icon: n.icon }));
+  const paletteNav = [...top, ...bottom].map((n) => ({ href: n.href, label: t(n.label), icon: n.icon }));
 
   const sidebar = (mobile: boolean) => (
     <SidebarBody
-      items={items}
+      top={top}
+      bottom={bottom}
       pathname={pathname}
       collapsed={!mobile && collapsed}
       badges={badges.data}
+      connected={connected}
       onToggle={mobile ? () => setDrawer(false) : toggleCollapsed}
       mobile={mobile}
     />
@@ -174,52 +205,28 @@ export function Shell({ children }: { children: ReactNode }) {
         ) : null}
 
         <div className={cx("transition-[padding] duration-200", collapsed ? "md:pl-16" : "md:pl-60")}>
-          <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md sm:gap-3 sm:px-5">
+          <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-surface/90 px-3 backdrop-blur-md sm:gap-2.5 sm:px-5">
             <IconButton label={t("shell.open_nav")} className="md:hidden" onClick={() => setDrawer(true)}>
               <Menu />
             </IconButton>
-            <nav aria-label={t("shell.breadcrumb")} className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
-              <span className="hidden truncate text-fg-3 lg:inline">{me.company_name}</span>
-              {current ? (
-                <>
-                  <ChevronRight className="hidden size-3.5 shrink-0 text-fg-4 lg:inline" aria-hidden />
-                  {crumb ? (
-                    <Link href={current.href} className="truncate text-fg-3 hover:text-fg">
-                      {t(current.label)}
-                    </Link>
-                  ) : (
-                    <span className="truncate font-semibold text-fg">{t(current.label)}</span>
-                  )}
-                </>
-              ) : null}
-              {crumb ? (
-                <>
-                  <ChevronRight className="size-3.5 shrink-0 text-fg-4" aria-hidden />
-                  <span className="truncate font-mono text-[13px] font-semibold text-fg">{crumb}</span>
-                </>
-              ) : null}
-            </nav>
-            <button
-              type="button"
-              onClick={() => setPalette(true)}
-              className={cx(
-                "hidden h-8 w-56 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-sm text-fg-4 transition-colors hover:border-line-strong hover:text-fg-3 lg:flex",
-                focusRing,
-              )}
-            >
-              <Search className="size-4" aria-hidden />
-              <span className="flex-1 truncate text-left">{t("cmd.search")}</span>
-              <Kbd>Ctrl K</Kbd>
-            </button>
-            <IconButton label={t("cmd.search")} className="lg:hidden" onClick={() => setPalette(true)}>
+            <LogoMark className="size-7 sm:hidden" />
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="hidden truncate text-[15px] font-semibold text-fg sm:block">{t("crm.product")}</div>
+              <div className="hidden truncate text-[11px] text-fg-3 lg:block">{t("crm.tagline")}</div>
+            </div>
+            <CompanySwitcher />
+            <RangeSelect className="hidden lg:block" />
+            <IconButton label={t("cmd.search")} title={`${t("cmd.search")} (Ctrl K)`} onClick={() => setPalette(true)} className="hidden sm:inline-flex">
               <Search />
             </IconButton>
-            <LanguageSwitcher className="hidden sm:inline-flex" />
-            <ThemeToggle />
+            <LanguageSwitcher className="hidden 2xl:inline-flex" />
+            <span className="hidden sm:contents">
+              <ThemeToggle />
+            </span>
             <NotificationBell />
             <ProfileMenu />
           </header>
-          <main className="mx-auto max-w-[1480px] px-3 py-5 sm:px-6 sm:py-6">{children}</main>
+          <main className="mx-auto max-w-[1600px] px-3 py-4 sm:px-5 sm:py-5">{children}</main>
         </div>
         <CommandPalette open={palette} onClose={() => setPalette(false)} nav={paletteNav} />
       </div>
@@ -227,73 +234,270 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+// --------------------------------------------------------------------------- company switcher / range
+
+/**
+ * "All companies (n)" for owners (owner overview + home-company data), or one company, which is then
+ * sent as X-Company-Id on every request.
+ */
+export function CompanySwitcher() {
+  const { me, reloadMe } = useMe();
+  const { t } = useFmt();
+  const scope = useCompanyScope();
+  const toast = useToast();
+  const companies = me.companies ?? [];
+  const isOwner = me.role === "owner";
+  if (companies.length <= 1 && !isOwner) return null;
+  const current = scope ? companies.find((c) => c.id === scope) : null;
+  const label = current ? current.name : isOwner ? t("crm.all_companies", { n: Math.max(companies.length, 1) }) : me.company_name;
+
+  async function pick(id: string | null) {
+    if (id === scope) return;
+    setCompanyScope(id);
+    try {
+      await reloadMe();
+    } catch (err) {
+      toast(errorMessage(err), { kind: "error" });
+    }
+  }
+
+  return (
+    <Dropdown
+      label={t("crm.company_switch")}
+      panelClassName="w-72 max-h-[70vh] overflow-y-auto"
+      trigger={({ toggle, open }) => (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title={t("crm.company_switch")}
+          className={cx(
+            "inline-flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 text-sm font-medium text-fg shadow-xs hover:bg-surface-2 sm:max-w-[15rem] sm:px-2.5",
+            focusRing,
+          )}
+        >
+          <Building2 className="size-4 shrink-0 text-fg-3" aria-hidden />
+          <span className="truncate">{label}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-fg-4" aria-hidden />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          {isOwner ? (
+            <MenuItem
+              icon={<Layers />}
+              hint={scope === null ? <Check className="size-4 text-accent-text" /> : undefined}
+              onClick={() => {
+                close();
+                void pick(null);
+              }}
+            >
+              {t("crm.all_companies", { n: Math.max(companies.length, 1) })}
+            </MenuItem>
+          ) : null}
+          {companies.map((c) => {
+            const selected = scope === c.id || (scope === null && !isOwner && c.id === me.home_company_id);
+            return (
+              <MenuItem
+                key={c.id}
+                icon={<Building2 />}
+                hint={selected ? <Check className="size-4 text-accent-text" /> : undefined}
+                onClick={() => {
+                  close();
+                  void pick(c.id === me.home_company_id && !isOwner ? null : c.id);
+                }}
+              >
+                {c.name}
+              </MenuItem>
+            );
+          })}
+        </>
+      )}
+    </Dropdown>
+  );
+}
+
+const RANGE_KEY: Record<RangeDays, Key> = { 1: "crm.range_today", 7: "crm.range_7", 30: "crm.range_30" };
+
+export function RangeSelect({ className }: { className?: string }) {
+  const { t } = useFmt();
+  const range = useRange();
+  return (
+    <select
+      aria-label={t("crm.range")}
+      value={range}
+      onChange={(e) => setRange(Number(e.target.value) as RangeDays)}
+      className={cx("h-8 rounded-lg border border-line bg-surface px-2 pr-7 text-sm text-fg shadow-xs", focusRing, className)}
+    >
+      {RANGES.map((r) => (
+        <option key={r} value={r}>
+          {t(RANGE_KEY[r])}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// --------------------------------------------------------------------------- sidebar
+
+function NavLink({ n, pathname, collapsed, badges, connected }: { n: NavItem; pathname: string; collapsed: boolean; badges: BadgesOut | undefined; connected: boolean }) {
+  const { t, count } = useFmt();
+  const active = isActive(pathname, n.href);
+  const value = n.badge && badges ? (badges[n.badge] ?? 0) : 0;
+  const label = t(n.label);
+  return (
+    <Link
+      href={n.href}
+      aria-current={active ? "page" : undefined}
+      title={collapsed ? label : undefined}
+      className={cx(
+        "group relative flex items-center gap-3 rounded-lg text-sm font-medium transition-colors [&_svg]:size-[18px] [&_svg]:shrink-0",
+        collapsed ? "size-10 justify-center self-center" : "h-9 px-2.5",
+        active ? "bg-nav-active text-white" : "text-nav-fg hover:bg-nav-2 hover:text-white",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+      )}
+    >
+      {active ? <span className="absolute -left-3 top-1.5 bottom-1.5 w-1 rounded-r-full bg-nav-indicator" aria-hidden /> : null}
+      <span className={cx("relative", active ? "text-indigo-300" : "text-nav-muted group-hover:text-nav-fg")}>
+        {n.icon}
+        {n.dot && connected && collapsed ? <span className="absolute -right-1 -top-1 size-2 rounded-full bg-emerald-400 ring-2 ring-nav" aria-hidden /> : null}
+      </span>
+      {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
+      {n.dot && connected && !collapsed ? (
+        <span className="size-2 rounded-full bg-emerald-400" title={t("crm.integrations_connected")} aria-label={t("crm.integrations_connected")} />
+      ) : null}
+      {value ? (
+        collapsed ? (
+          <span className={cx("absolute -right-0.5 -top-0.5 min-w-4 rounded-full px-1 text-center text-[10px] font-bold leading-4", BADGE_TONE[n.badgeTone ?? "accent"])}>
+            {value > 99 ? "99+" : value}
+          </span>
+        ) : (
+          <span
+            className={cx("min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5 tabular-nums", BADGE_TONE[n.badgeTone ?? "accent"])}
+            title={n.badge ? t(`crm.badgehint.${n.badge}` as Key) : undefined}
+          >
+            {value > 999 ? count(value) : value}
+          </span>
+        )
+      ) : null}
+    </Link>
+  );
+}
+
+/** Expandable list of departments; each opens Issues filtered by that department. */
+function DepartmentsNav({ collapsed }: { collapsed: boolean }) {
+  const { t } = useFmt();
+  const refData = useReference();
+  const pathname = usePathname();
+  const current = useSearchParams().get("department_id");
+  const onIssues = pathname === "/tasks" && !!current;
+  const [open, setOpen] = useState(onIssues);
+  const depts = refData.departments;
+  if (collapsed) {
+    return (
+      <Link
+        href="/tasks"
+        title={t("crm.nav.departments")}
+        className="flex size-10 items-center justify-center self-center rounded-lg text-nav-muted hover:bg-nav-2 hover:text-white [&_svg]:size-[18px]"
+      >
+        <Layers />
+      </Link>
+    );
+  }
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={cx(
+          "group flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm font-medium transition-colors [&_svg]:size-[18px] [&_svg]:shrink-0",
+          onIssues ? "text-white" : "text-nav-fg hover:bg-nav-2 hover:text-white",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+        )}
+      >
+        <span className="text-nav-muted group-hover:text-nav-fg">
+          <Layers />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left">{t("crm.nav.departments")}</span>
+        <ChevronRight className={cx("!size-4 text-nav-muted transition-transform", open && "rotate-90")} aria-hidden />
+      </button>
+      {open ? (
+        <ul className="ml-[1.35rem] mt-0.5 space-y-0.5 border-l border-nav-line pl-2.5">
+          {depts.map((d) => {
+            const active = onIssues && current === d.id;
+            return (
+              <li key={d.id}>
+                <Link
+                  href={`/tasks?department_id=${d.id}`}
+                  aria-current={active ? "page" : undefined}
+                  className={cx(
+                    "block truncate rounded-md px-2 py-1.5 text-[13px] transition-colors",
+                    active ? "bg-nav-active font-medium text-white" : "text-nav-muted hover:bg-nav-2 hover:text-white",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                  )}
+                >
+                  {deptLabel(d, t)}
+                </Link>
+              </li>
+            );
+          })}
+          {depts.length === 0 ? <li className="px-2 py-1.5 text-[13px] text-nav-muted">{t("common.loading")}</li> : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function SidebarBody({
-  items,
+  top,
+  bottom,
   pathname,
   collapsed,
   badges,
+  connected,
   onToggle,
   mobile,
 }: {
-  items: NavItem[];
+  top: NavItem[];
+  bottom: NavItem[];
   pathname: string;
   collapsed: boolean;
   badges: BadgesOut | undefined;
+  connected: boolean;
   onToggle: () => void;
   mobile: boolean;
 }) {
   const { me, signOut } = useMe();
-  const { t, role, count } = useFmt();
+  const { t, role } = useFmt();
   return (
     <>
       <div className={cx("flex h-14 shrink-0 items-center gap-2.5 border-b border-nav-line", collapsed ? "justify-center px-0" : "px-4")}>
         <LogoMark />
-        {!collapsed ? <Wordmark className="text-white" /> : null}
+        {!collapsed ? (
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-[13px] font-semibold text-white">{t("crm.product_short")}</span>
+            <span className="block truncate text-[11px] text-nav-muted">{me.company_name}</span>
+          </span>
+        ) : null}
         {mobile ? (
           <button type="button" onClick={onToggle} aria-label={t("common.close")} className="ml-auto rounded-md p-1.5 text-nav-muted hover:bg-nav-2 hover:text-white">
             <X className="size-4" />
           </button>
         ) : null}
       </div>
-      <nav className={cx("flex flex-1 flex-col gap-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")} aria-label={t("shell.main_nav")}>
-        {!collapsed ? <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-nav-muted/80">{t("shell.workspace")}</div> : null}
-        {items.map((n) => {
-          const active = isActive(pathname, n.href);
-          const value = n.badge && badges ? badges[n.badge] : 0;
-          const label = t(n.label);
-          return (
-            <Link
-              key={n.href}
-              href={n.href}
-              aria-current={active ? "page" : undefined}
-              title={collapsed ? label : undefined}
-              className={cx(
-                "group relative flex items-center gap-3 rounded-lg text-sm font-medium transition-colors [&_svg]:size-[18px] [&_svg]:shrink-0",
-                collapsed ? "size-10 justify-center self-center" : "h-9 px-2.5",
-                active ? "bg-nav-active text-white" : "text-nav-fg hover:bg-nav-2 hover:text-white",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-              )}
-            >
-              {active ? <span className="absolute -left-3 top-1.5 bottom-1.5 w-1 rounded-r-full bg-nav-indicator" aria-hidden /> : null}
-              <span className={active ? "text-indigo-300" : "text-nav-muted group-hover:text-nav-fg"}>{n.icon}</span>
-              {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
-              {value ? (
-                collapsed ? (
-                  <span className={cx("absolute -right-0.5 -top-0.5 min-w-4 rounded-full px-1 text-center text-[10px] font-bold leading-4", BADGE_TONE[n.badgeTone ?? "accent"])}>
-                    {value > 99 ? "99+" : value}
-                  </span>
-                ) : (
-                  <span
-                    className={cx("min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5 tabular-nums", BADGE_TONE[n.badgeTone ?? "accent"])}
-                    title={n.badge ? t(`badgehint.${n.badge}` as Key) : undefined}
-                  >
-                    {value > 999 ? count(value) : value}
-                  </span>
-                )
-              ) : null}
-            </Link>
-          );
-        })}
+      <nav className={cx("flex flex-1 flex-col gap-0.5 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")} aria-label={t("shell.main_nav")}>
+        {top.map((n) => (
+          <NavLink key={n.href} n={n} pathname={pathname} collapsed={collapsed} badges={badges} connected={connected} />
+        ))}
+        <Suspense fallback={null}>
+          <DepartmentsNav collapsed={collapsed} />
+        </Suspense>
+        {bottom.map((n) => (
+          <NavLink key={n.href} n={n} pathname={pathname} collapsed={collapsed} badges={badges} connected={connected} />
+        ))}
       </nav>
       <div className={cx("border-t border-nav-line", collapsed ? "p-2" : "p-3")}>
         {!collapsed ? (
@@ -666,10 +870,16 @@ export function ProfileMenu({ simple }: { simple?: boolean }) {
               <ThemeChoice />
             </div>
           ) : (
-            <div className="border-b border-line px-4 py-3 sm:hidden">
-              <div className="mb-1.5 text-xs font-medium text-fg-3">{t("lang.switch")}</div>
-              <LanguageSwitcher />
-            </div>
+            <>
+              <div className="border-b border-line px-4 py-3 2xl:hidden">
+                <div className="mb-1.5 text-xs font-medium text-fg-3">{t("lang.switch")}</div>
+                <LanguageSwitcher />
+              </div>
+              <div className="border-b border-line px-4 py-3 sm:hidden">
+                <div className="mb-1.5 text-xs font-medium text-fg-3">{t("theme.label")}</div>
+                <ThemeChoice />
+              </div>
+            </>
           )}
           <div className="border-b border-line px-4 py-3">
             <ModeSwitch />

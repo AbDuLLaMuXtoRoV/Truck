@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ApiError, apiGet } from "./api";
+import { useCompanyScope } from "./company";
 
 /** Last successful response per GET path: lets revisited screens render instantly, then revalidate. */
 const responseCache = new Map<string, unknown>();
@@ -11,7 +12,8 @@ export const DATA_CHANGED = "smart-truck:data-changed";
 
 export function invalidateCache(prefix: string): void {
   for (const key of [...responseCache.keys()]) {
-    if (key.startsWith(prefix)) responseCache.delete(key);
+    // keys are "<company scope>|<path>"
+    if (key.slice(key.indexOf("|") + 1).startsWith(prefix)) responseCache.delete(key);
   }
   if (typeof window !== "undefined" && prefix.startsWith("/api/dashboard")) window.dispatchEvent(new Event(DATA_CHANGED));
 }
@@ -40,9 +42,12 @@ interface State<T> {
  * optionally polls every `refreshMs`.
  */
 export function useApi<T>(path: string | null, opts: { refreshMs?: number } = {}): UseApiResult<T> {
+  // the same path answers differently per company (X-Company-Id), so the company is part of the key
+  const scope = useCompanyScope();
+  const key = path === null ? null : `${scope ?? ""}|${path}`;
   const [state, setState] = useState<State<T>>(() => ({
-    key: path,
-    data: path ? (responseCache.get(path) as T | undefined) : undefined,
+    key,
+    data: key ? (responseCache.get(key) as T | undefined) : undefined,
     error: undefined,
     loading: path !== null,
   }));
@@ -50,19 +55,19 @@ export function useApi<T>(path: string | null, opts: { refreshMs?: number } = {}
   const { refreshMs } = opts;
 
   useEffect(() => {
-    if (path === null) return;
+    if (path === null || key === null) return;
     const ctrl = new AbortController();
     let active = true;
     const run = () => {
       setState((s) => {
-        const cached = responseCache.get(path) as T | undefined;
-        return { ...s, loading: true, ...(s.key !== path && cached !== undefined ? { key: path, data: cached } : {}) };
+        const cached = responseCache.get(key) as T | undefined;
+        return { ...s, loading: true, ...(s.key !== key && cached !== undefined ? { key, data: cached } : {}) };
       });
       apiGet<T>(path, ctrl.signal)
         .then((data) => {
           if (!active) return;
-          responseCache.set(path, data);
-          setState({ key: path, data, error: undefined, loading: false });
+          responseCache.set(key, data);
+          setState({ key, data, error: undefined, loading: false });
         })
         .catch((error: unknown) => {
           if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
@@ -74,7 +79,7 @@ export function useApi<T>(path: string | null, opts: { refreshMs?: number } = {}
       active = false;
       ctrl.abort();
     };
-  }, [path, nonce]);
+  }, [path, key, nonce]);
 
   useEffect(() => {
     if (!refreshMs || path === null) return;
@@ -100,7 +105,7 @@ export function useApi<T>(path: string | null, opts: { refreshMs?: number } = {}
     data: state.data,
     error: state.error,
     loading: state.loading,
-    stale: state.key !== path,
+    stale: state.key !== key,
     reload,
     setData,
   };
@@ -146,4 +151,17 @@ export function useDismiss(ref: RefObject<HTMLElement | null>, active: boolean, 
       document.removeEventListener("keydown", key);
     };
   }, [ref, active]);
+}
+
+/** True while the media query matches (false on the server). */
+export function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener("change", fn);
+      return () => mq.removeEventListener("change", fn);
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
 }

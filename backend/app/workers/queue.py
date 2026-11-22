@@ -50,15 +50,15 @@ def _celery():
     return celery_app
 
 
-async def enqueue_analysis(group_id: uuid.UUID, *, delay_seconds: float | None = None) -> None:
+async def enqueue_analysis(group_id: uuid.UUID, *, delay_seconds: float | None = None, kind: str = "telegram") -> None:
     settings = get_settings()
     delay = settings.analysis_debounce_seconds if delay_seconds is None else delay_seconds
     if settings.task_queue == "celery":
-        _celery().send_task("jobs.analyze_group", args=[str(group_id)], countdown=delay)
+        _celery().send_task("jobs.analyze_channel", args=[kind, str(group_id)], countdown=delay)
         return
-    from app.workers.jobs import job_analyze_group
+    from app.workers.jobs import job_analyze_channel
 
-    _schedule_inline(f"analyze:{group_id}", delay, lambda: job_analyze_group(group_id))
+    _schedule_inline(f"analyze:{kind}:{group_id}", delay, lambda: job_analyze_channel(kind, group_id))
 
 
 async def enqueue_download(attachment_id: uuid.UUID) -> None:
@@ -91,15 +91,25 @@ async def enqueue_telegram(method: str, params: dict) -> None:
 
 async def periodic_loop(stop: asyncio.Event) -> None:
     """Inline-mode replacement for Celery beat."""
-    from app.workers.jobs import job_send_dms, job_sla_checks, job_sweep_pending
+    from app.workers.jobs import (
+        job_coverage_checks,
+        job_gmail_sync,
+        job_response_checks,
+        job_send_dms,
+        job_sla_checks,
+        job_sweep_pending,
+    )
 
     tick = 0
     while not stop.is_set():
         try:
+            await job_response_checks()  # every 15 s: the 3/5/10-minute ladder needs it
             await job_send_dms()
             if tick % 4 == 0:
                 await job_sla_checks()
                 await job_sweep_pending()
+                await job_gmail_sync()
+                await job_coverage_checks()
         except Exception:  # noqa: BLE001
             log.exception("periodic job failed")
         tick += 1

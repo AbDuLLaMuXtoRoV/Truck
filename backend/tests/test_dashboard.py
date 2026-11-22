@@ -36,9 +36,11 @@ async def seed(db, org):
 async def test_badges(client, org, db):
     await seed(db, org)
     mgr = await auth_headers(client, "manager")
-    assert (await client.get("/api/dashboard/badges", headers=mgr)).json() == {
+    b = (await client.get("/api/dashboard/badges", headers=mgr)).json()
+    assert {k: b[k] for k in ("needs_review", "overdue", "my_open", "pending_groups")} == {
         "needs_review": 1, "overdue": 0, "my_open": 0, "pending_groups": 1,
     }
+    assert b["unanswered"] == 0 and b["overdue_responses"] == 0 and b["pending_handovers"] == 0
     agent = await auth_headers(client, "eld_agent")
     b = (await client.get("/api/dashboard/badges", headers=agent)).json()
     assert b["my_open"] == 1 and b["needs_review"] == 0 and b["pending_groups"] == 0  # agents can't read groups

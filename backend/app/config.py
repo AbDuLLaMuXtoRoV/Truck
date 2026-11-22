@@ -52,6 +52,25 @@ class Settings(BaseSettings):
     dedupe_window_hours: int = 72
     dedupe_similarity: float = 0.5
 
+    # 24/7 human-response SLA (blueprint sec. 7): team reminder, supervisor, manager/owner
+    response_reminder_seconds: int = 180
+    response_overdue_seconds: int = 300
+    response_escalate_seconds: int = 600
+    # A staff message that is not a reply answers every waiting message in that chat.
+    # Set false to require explicit replies (or manual association) instead.
+    response_unthreaded_answers_all: bool = True
+    # "Nobody on duty" alerts need the shift roster in use; off until then.
+    coverage_alerts_enabled: bool = False
+
+    # Gmail / Google Workspace (blueprint sec. 5). OAuth client from Google Cloud Console.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Public address of the dashboard (it proxies /api) — used for the OAuth redirect URI.
+    public_url: str = "http://localhost:3000"
+    gmail_sync_seconds: int = 60
+    # Fernet key for OAuth tokens at rest. Empty = derived from JWT_SECRET (set a real one in prod).
+    encryption_key: str = ""
+
     # Storage
     storage_dir: str = "./storage"
 

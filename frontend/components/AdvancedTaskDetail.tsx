@@ -28,6 +28,7 @@ import { useCrumb } from "@/components/Shell";
 import { MessageCard, Timeline } from "@/components/TaskParts";
 import { useToast } from "@/components/toast";
 import { TransitionBar } from "@/components/TransitionBar";
+import { ResponseCard } from "@/components/crm/Issues";
 import { Button, Card, ErrorBanner, Field, Modal, Skeleton, cx, inputCls, selectCls } from "@/components/ui";
 import { api, paths } from "@/lib/api";
 import { useMe } from "@/lib/auth";
@@ -224,6 +225,7 @@ function TaskDetail({
 
         {/* side column */}
         <div className="space-y-4">
+          <ResponseCard task={task} refData={refData} onChange={onChange} />
           <PropertiesCard task={task} refData={refData} onChange={onChange} />
           <Card title={t("sla.title")} icon={<Timer />}>
             <SlaBar createdAt={task.created_at} dueAt={task.due_at} status={task.status} now={now} />

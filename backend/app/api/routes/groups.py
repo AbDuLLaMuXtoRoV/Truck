@@ -7,7 +7,7 @@ from app.api.deps import DB, require
 from app.api.schemas import DepartmentRef, GroupOut, GroupPatchIn, TruckRef
 from app.core.rbac import Actor, Perm
 from app.domain.enums import OPEN_STATUSES
-from app.models import Department, Message, Task, TelegramGroup, Truck, utcnow
+from app.models import Department, Message, ResponseClock, Task, TelegramGroup, Truck, User, utcnow
 from app.i18n import group_text
 from app.services.audit import record_audit
 from app.workers.queue import enqueue_reply
@@ -29,6 +29,13 @@ async def _out(session, groups: list[TelegramGroup]) -> list[GroupOut]:
             .group_by(Task.group_id)
         )).all()
     ) if ids else {}
+    unanswered = dict(
+        (await session.execute(
+            select(ResponseClock.group_id, func.count())
+            .where(ResponseClock.group_id.in_(ids), ResponseClock.status == "pending")
+            .group_by(ResponseClock.group_id)
+        )).all()
+    ) if ids else {}
     trucks = {t.id: t for t in (await session.scalars(select(Truck).where(Truck.id.in_({g.truck_id for g in groups if g.truck_id})))).all()}
     depts = {d.id: d for d in (await session.scalars(select(Department).where(Department.id.in_({g.department_id for g in groups if g.department_id})))).all()}
     return [
@@ -46,6 +53,10 @@ async def _out(session, groups: list[TelegramGroup]) -> list[GroupOut]:
             created_at=g.created_at,
             message_count=msg_counts.get(g.id, 0),
             open_tasks=task_counts.get(g.id, 0),
+            unanswered=unanswered.get(g.id, 0),
+            supervisor_id=g.supervisor_id,
+            manager_id=g.manager_id,
+            backup_id=g.backup_id,
         )
         for g in groups
     ]
@@ -75,6 +86,17 @@ async def patch_group(group_id: uuid.UUID, body: GroupPatchIn, session: DB, acto
         dept = await session.get(Department, changes["department_id"])
         if dept is None or dept.company_id != actor.company_id:
             raise HTTPException(422, detail={"code": "invalid_department", "message": "Unknown department"})
+    for key in ("supervisor_id", "manager_id", "backup_id"):  # escalation policy [blueprint sec. 6]
+        if changes.get(key):
+            user = await session.get(User, changes[key])
+            if user is None or user.company_id != actor.company_id:
+                raise HTTPException(422, detail={"code": "invalid_user", "message": "Unknown user"})
+    if "company_id" in changes:
+        target = changes["company_id"]
+        if target is None or target not in actor.company_ids:
+            raise HTTPException(403, detail={"code": "company_forbidden", "message": "No access to the target company"})
+        if target != group.company_id:  # truck / department belong to the old company
+            changes.update(truck_id=None, department_id=None, supervisor_id=None, manager_id=None, backup_id=None)
 
     before = {k: str(getattr(group, k)) for k in changes}
     for key, value in changes.items():

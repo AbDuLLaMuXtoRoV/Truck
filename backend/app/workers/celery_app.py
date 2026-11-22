@@ -27,6 +27,9 @@ celery_app.conf.update(
         "send-dms": {"task": "jobs.send_dms", "schedule": 15.0},
         "sla-checks": {"task": "jobs.sla_checks", "schedule": 60.0},
         "sweep-pending": {"task": "jobs.sweep_pending", "schedule": 60.0},
+        "response-checks": {"task": "jobs.response_checks", "schedule": 15.0},
+        "gmail-sync": {"task": "jobs.gmail_sync", "schedule": 60.0},
+        "coverage-checks": {"task": "jobs.coverage_checks", "schedule": 60.0},
     },
 )
 
@@ -89,3 +92,31 @@ def telegram_call(method: str, params: dict):
     from app.workers.jobs import job_telegram_call
 
     return _run(job_telegram_call(method, params))
+
+
+@celery_app.task(name="jobs.analyze_channel")
+def analyze_channel(kind: str, channel_id: str):
+    from app.workers.jobs import job_analyze_channel
+
+    return _run(job_analyze_channel(kind, uuid.UUID(channel_id)))
+
+
+@celery_app.task(name="jobs.response_checks")
+def response_checks():
+    from app.workers.jobs import job_response_checks
+
+    return _run(job_response_checks())
+
+
+@celery_app.task(name="jobs.gmail_sync")
+def gmail_sync():
+    from app.workers.jobs import job_gmail_sync
+
+    return _run(job_gmail_sync())
+
+
+@celery_app.task(name="jobs.coverage_checks")
+def coverage_checks():
+    from app.workers.jobs import job_coverage_checks
+
+    return _run(job_coverage_checks())

@@ -180,6 +180,24 @@ Then run STOP.bat and START.bat. The window prints a public `https://….tryclou
 
 ---
 
+## Part 9 — CRM: 5-minute reply timer, inbox, companies, shifts (15 min)
+
+Log in as `owner@…` (lands on the CRM dashboard). Use two Telegram accounts: a "driver" and a "staff" account. Link the staff account to a user first: **Team & Permissions → Telegram roster → Staff** toggle, or Connect Telegram.
+
+| # | Do this | Expected | ✅ |
+|---|---|---|---|
+| 9.1 | As the driver, write in **Dispatch Team**: `Load 78432 da 2 soatdan beri kutyapman` | Within seconds, **Unified Inbox** shows the conversation with a red **countdown from 05:00** | ☐ |
+| 9.2 | Wait 3 minutes | The on-duty / department staff get a reminder (bell; Telegram DM if linked) | ☐ |
+| 9.3 | Wait until past 5 minutes | The timer turns into **+mm:ss** (overdue); the supervisor is notified; **Escalations** lists the step | ☐ |
+| 9.4 | Reply from the **staff** account (reply to the driver's message) | The timer stops; the conversation shows "Answered in …"; the issue panel shows **Message answered: Yes** | ☐ |
+| 9.5 | As the driver, write `rahmat aka 👍` | **No** new timer: thanks and acknowledgements need no reply | ☐ |
+| 9.6 | As the driver, write `Avariya bo'ldi, politsiya keldi` | **Immediate** critical alert to supervisor and managers | ☐ |
+| 9.7 | Inbox → a waiting message → **No reply needed** with a reason | The timer closes; the audit log records who and why | ☐ |
+| 9.8 | Top bar → **All Companies** → pick another company | All numbers and lists switch to that company; the owner overview shows all 5 | ☐ |
+| 9.9 | **Shifts** as `eld.agent@…`: Start shift → End shift → hand over to Javlon's colleague | The issues stay with the agent until the colleague clicks **Accept** | ☐ |
+| 9.10 | **Integrations → TMS**: import a CSV with `Load #,Truck,Trailer,Driver` | Loads appear; the AI uses them to fill truck / trailer / driver on new issues | ☐ |
+| 9.11 | **Integrations → Gmail** (needs `GOOGLE_CLIENT_ID/SECRET`, see README) → Connect | The inbox connects; a customer email starts a timer, your reply in the same thread stops it | ☐ |
+
 ## Results sheet
 
 | Part | Passed | Notes |

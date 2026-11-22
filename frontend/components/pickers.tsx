@@ -1,5 +1,6 @@
 "use client";
 
+import { deptLabel } from "@/lib/crm";
 import { useMemo, useRef, useState } from "react";
 import { errorMessage, paths } from "@/lib/api";
 import { taskTitle } from "@/lib/format";
@@ -56,7 +57,7 @@ export function UserSelect({
       {allowEmpty ? <option value="">{placeholder ?? t("picker.choose_assignee")}</option> : null}
       {preferred.length ? (
         <>
-          <optgroup label={dept ? dept.name : t("picker.department_group")}>{preferred.map(option)}</optgroup>
+          <optgroup label={dept ? deptLabel(dept, t) : t("picker.department_group")}>{preferred.map(option)}</optgroup>
           <optgroup label={t("picker.everyone_else")}>{others.map(option)}</optgroup>
         </>
       ) : (
@@ -89,7 +90,7 @@ export function DepartmentSelect({
       <option value="">{emptyLabel ?? t("picker.no_department")}</option>
       {refData.departments.map((d) => (
         <option key={d.id} value={d.id}>
-          {d.name}
+          {deptLabel(d, t)}
         </option>
       ))}
     </select>

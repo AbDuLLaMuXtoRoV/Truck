@@ -46,6 +46,7 @@ export const TASK_CATEGORIES = [
   "documents",
   "safety_compliance",
   "hr",
+  "trailer",
   "other",
 ] as const;
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
@@ -59,6 +60,7 @@ export const CATEGORY_DEPARTMENT: Record<TaskCategory, string | null> = {
   documents: "ACCOUNTING",
   safety_compliance: "SAFETY",
   hr: "HR",
+  trailer: "TRAILER",
   other: null,
 };
 
@@ -187,6 +189,10 @@ export interface MeOut extends UserOut {
   company_name: string;
   company_timezone: string;
   permissions: string[];
+  /** the user's own company; company_id above is the one this request is scoped to (X-Company-Id) */
+  home_company_id: UUID | null;
+  /** every company this user may switch to */
+  companies: CompanyRef[];
 }
 
 /** PATCH /api/me: fields left out are unchanged. */
@@ -267,6 +273,11 @@ export interface GroupOut extends GroupRef {
   created_at: ISODateTime;
   message_count: number;
   open_tasks: number;
+  /** inbound messages waiting for a human reply */
+  unanswered: number;
+  supervisor_id: UUID | null;
+  manager_id: UUID | null;
+  backup_id: UUID | null;
 }
 
 /** Fields left out are unchanged; explicit null clears truck/department (null on is_enabled/kind is a 422). */
@@ -275,6 +286,11 @@ export interface GroupPatchIn {
   kind?: GroupKind | null;
   truck_id?: UUID | null;
   department_id?: UUID | null;
+  supervisor_id?: UUID | null;
+  manager_id?: UUID | null;
+  backup_id?: UUID | null;
+  /** move the group to another company (needs access to both) */
+  company_id?: UUID | null;
 }
 
 // --------------------------------------------------------------------------- tasks
@@ -293,6 +309,18 @@ export interface TaskOut {
   truck: TruckRef | null;
   truck_unit_raw: string | null;
   load_ref: string | null;
+  issue_type: string | null;
+  amount: number | null;
+  trailer_ref: string | null;
+  driver_name: string | null;
+  next_action_at: ISODateTime | null;
+  source_channel: Source | null;
+  mailbox: MailboxRef | null;
+  /** state of the reply to the source message (null when none was needed) */
+  response_status: "unanswered" | "overdue" | "answered" | null;
+  /** earliest pending reply deadline: drives the live countdown in the issues table */
+  response_due_at: ISODateTime | null;
+  response_critical: boolean;
   assignee: UserRef | null;
   source: TaskSource;
   confidence: number | null;
@@ -372,6 +400,8 @@ export interface TaskDetailOut extends TaskOut {
   allowed_transitions: TaskStatus[];
   can_edit: boolean;
   can_assign: boolean;
+  escalations: EscalationOut[];
+  response: TaskResponseInfo | null;
 }
 
 export interface TaskCreateIn {
@@ -396,6 +426,11 @@ export interface TaskPatchIn {
   truck_id?: UUID | null;
   load_ref?: string | null;
   due_at?: ISODateTime | null;
+  issue_type?: string | null;
+  amount?: number | null;
+  trailer_ref?: string | null;
+  driver_name?: string | null;
+  next_action_at?: ISODateTime | null;
 }
 
 export interface TransitionIn {
@@ -448,6 +483,12 @@ export interface BadgesOut {
   overdue: number;
   my_open: number;
   pending_groups: number;
+  /** messages waiting for a human reply */
+  unanswered: number;
+  /** more than 5 minutes without a reply */
+  overdue_responses: number;
+  /** handovers waiting for me to accept */
+  pending_handovers: number;
 }
 
 /** One company-time-zone day of GET /api/dashboard/trend. */
@@ -616,4 +657,397 @@ export interface UsersQuery {
 
 export interface GroupsQuery {
   enabled?: boolean;
+}
+
+// =========================================================================== CRM (backend/app/api/schemas_crm.py)
+
+export type Source = "telegram" | "email";
+
+export interface CompanyRef {
+  id: UUID;
+  name: string;
+}
+
+export interface MailboxRef {
+  id: UUID;
+  email_address: string;
+}
+
+export interface Ref {
+  id: UUID;
+  full_name: string;
+}
+
+export interface TaskBrief {
+  id: UUID;
+  code: string;
+  title: string;
+  i18n: Partial<Record<Language, TaskTranslation>>;
+  status: TaskStatus;
+  priority: Priority;
+}
+
+// --------------------------------------------------------------------------- companies / owner view
+
+export interface CompanyOut {
+  id: UUID;
+  name: string;
+  timezone: string;
+  is_home: boolean;
+  telegram_groups: number;
+  mailboxes: number;
+}
+
+export interface CompanyCreateIn {
+  name: string;
+  timezone?: string;
+}
+
+export interface CompanyStats {
+  company_id: UUID;
+  name: string;
+  telegram_groups: number;
+  gmail_accounts: number;
+  /** waiting for a human reply, 0-5 min */
+  unanswered: number;
+  /** no reply after 5 min */
+  overdue_responses: number;
+  open_issues: number;
+  resolved_24h: number;
+  escalations_24h: number;
+  median_response_seconds_24h: number | null;
+  within_sla_pct_24h: number | null;
+}
+
+export interface OwnerOverviewOut {
+  companies: number;
+  telegram_groups: number;
+  gmail_accounts: number;
+  unanswered: number;
+  overdue_responses: number;
+  open_issues: number;
+  resolved_24h: number;
+  escalations_24h: number;
+  per_company: CompanyStats[];
+}
+
+// --------------------------------------------------------------------------- response clocks / inbox
+
+export type ClockStatus = "pending" | "answered" | "not_needed";
+export type SenderKind = "staff" | "external" | "bot" | "automated";
+
+export interface ClockOut {
+  id: UUID;
+  status: ClockStatus;
+  started_at: ISODateTime;
+  due_at: ISODateTime;
+  /** negative when overdue (only meaningful while pending) */
+  seconds_left: number;
+  /** 0 none, 1 team reminded (3 min), 2 supervisor (5 min), 3 manager/owner (10 min) */
+  level: number;
+  critical: boolean;
+  answered_at: ISODateTime | null;
+  answered_by_name: string | null;
+  response_seconds: number | null;
+  closed_reason: string | null;
+}
+
+export interface InboxMessageBrief {
+  id: UUID;
+  sender_name: string;
+  sender_kind: SenderKind;
+  direction: "inbound" | "outbound";
+  preview: string;
+  sent_at: ISODateTime;
+}
+
+export interface ConversationOut {
+  /** thread key: tg:<group id> | mail:<mailbox id>:<thread id> */
+  key: string;
+  source: Source;
+  channel_id: UUID;
+  channel_name: string;
+  department: DepartmentRef | null;
+  subject: string | null;
+  last_message: InboxMessageBrief;
+  unanswered: number;
+  oldest_pending: ClockOut | null;
+  task: TaskBrief | null;
+  updated_at: ISODateTime;
+}
+
+export interface ThreadMessageOut {
+  id: UUID;
+  direction: "inbound" | "outbound";
+  sender_name: string;
+  sender_kind: SenderKind;
+  classification: string | null;
+  subject: string | null;
+  text: string | null;
+  transcript: string | null;
+  sent_at: ISODateTime;
+  telegram_link: string | null;
+  attachments: AttachmentOut[];
+  clock: ClockOut | null;
+  task_codes: string[];
+}
+
+export interface ThreadOut {
+  key: string;
+  source: Source;
+  channel_id: UUID;
+  channel_name: string;
+  subject: string | null;
+  department: DepartmentRef | null;
+  messages: ThreadMessageOut[];
+  tasks: TaskOut[];
+}
+
+export interface NoResponseIn {
+  reason: string;
+}
+
+export interface MessageToTaskIn {
+  title?: string | null;
+  category?: TaskCategory;
+  priority?: Priority;
+}
+
+export interface LinkMessageIn {
+  message_id: UUID;
+}
+
+export type InboxState = "all" | "unanswered" | "overdue" | "answered";
+
+export interface InboxQuery {
+  source?: "all" | Source;
+  state?: InboxState;
+  department_id?: UUID;
+  q?: string;
+  limit?: number;
+}
+
+// --------------------------------------------------------------------------- response dashboard
+
+export interface ResponseTrendDay {
+  date: string;
+  /** messages that needed a reply */
+  inbound: number;
+  answered: number;
+  /** answered within 5 minutes */
+  within_sla: number;
+  median_seconds: number | null;
+}
+
+export interface DepartmentResponse {
+  department_id: UUID | null;
+  code: string;
+  name: string;
+  unanswered: number;
+  overdue: number;
+}
+
+export interface ResponseStatsOut {
+  unanswered_0_5: number;
+  overdue_5_plus: number;
+  escalated_10_plus: number;
+  answered_today: number;
+  median_response_seconds_today: number | null;
+  within_sla_pct_today: number | null;
+  trend: ResponseTrendDay[];
+  by_department: DepartmentResponse[];
+}
+
+// --------------------------------------------------------------------------- escalations
+
+export type EscalationKind = "reminder" | "overdue" | "escalated" | "critical" | "manual";
+
+export interface EscalationClockBrief {
+  id: UUID;
+  channel_name: string;
+  sender_name: string | null;
+  preview: string | null;
+}
+
+export interface EscalationOut {
+  id: UUID;
+  created_at: ISODateTime;
+  level: number;
+  kind: EscalationKind;
+  reason: string | null;
+  notified_names: string[];
+  clock: EscalationClockBrief | null;
+  task: TaskBrief | null;
+}
+
+export interface EscalateIn {
+  reason: string;
+}
+
+/** Mockup: "Message answered: Yes (10:26 AM)" next to "Issue resolved: No". */
+export interface TaskResponseInfo {
+  /** null when no source message needed a reply */
+  message_answered: boolean | null;
+  answered_at: ISODateTime | null;
+  answered_by_name: string | null;
+  response_seconds: number | null;
+  pending: ClockOut | null;
+}
+
+// --------------------------------------------------------------------------- shifts / handovers
+
+export interface ShiftOut {
+  id: UUID;
+  started_at: ISODateTime;
+  ended_at: ISODateTime | null;
+  status: "active" | "ended";
+}
+
+export interface HandoverOut {
+  id: UUID;
+  from_user: Ref;
+  to_user: Ref;
+  status: "pending" | "accepted" | "declined";
+  note: string | null;
+  task_count: number;
+  tasks: TaskBrief[];
+  created_at: ISODateTime;
+  responded_at: ISODateTime | null;
+}
+
+export interface MyShiftOut {
+  active: ShiftOut | null;
+  open_tasks: number;
+  incoming_handovers: HandoverOut[];
+  outgoing_pending: HandoverOut[];
+}
+
+export interface ShiftEndIn {
+  handover_to_user_id?: UUID | null;
+  note?: string | null;
+}
+
+export interface ShiftEndOut {
+  shift: ShiftOut;
+  handover: HandoverOut | null;
+}
+
+export interface OnDutyUser {
+  user_id: UUID;
+  full_name: string;
+  since: ISODateTime;
+}
+
+export interface CoverageOut {
+  department_id: UUID;
+  code: string;
+  name: string;
+  on_duty: OnDutyUser[];
+  open_issues: number;
+  unanswered: number;
+  /** nobody on duty but the department has monitored channels */
+  gap: boolean;
+}
+
+// --------------------------------------------------------------------------- integrations
+
+export interface MailboxOut {
+  id: UUID;
+  email_address: string;
+  display_name: string | null;
+  department: DepartmentRef | null;
+  status: "connected" | "error" | "disconnected";
+  is_enabled: boolean;
+  last_sync_at: ISODateTime | null;
+  last_error: string | null;
+  message_count: number;
+  unanswered: number;
+  supervisor_id: UUID | null;
+  manager_id: UUID | null;
+  backup_id: UUID | null;
+}
+
+/** Fields left out are unchanged; null on is_enabled is a 422. */
+export interface MailboxPatchIn {
+  is_enabled?: boolean | null;
+  department_id?: UUID | null;
+  supervisor_id?: UUID | null;
+  manager_id?: UUID | null;
+  backup_id?: UUID | null;
+}
+
+export interface GmailConnectIn {
+  department_id?: UUID | null;
+}
+
+export interface GmailConnectOut {
+  auth_url: string;
+}
+
+export interface TelegramStatus {
+  connected: boolean;
+  bot_username: string | null;
+  mode: string;
+  groups_enabled: number;
+  groups_pending: number;
+}
+
+export interface GmailStatus {
+  /** GOOGLE_CLIENT_ID / SECRET present on the server */
+  configured: boolean;
+  mailboxes: MailboxOut[];
+}
+
+export interface TmsStatus {
+  loads: number;
+  last_import_at: ISODateTime | null;
+}
+
+export interface IntegrationsOut {
+  telegram: TelegramStatus;
+  gmail: GmailStatus;
+  tms: TmsStatus;
+}
+
+export interface LoadOut {
+  id: UUID;
+  load_ref: string;
+  truck_unit: string | null;
+  trailer_ref: string | null;
+  driver_name: string | null;
+  driver_phone: string | null;
+  broker: string | null;
+  status: string | null;
+  pickup: string | null;
+  delivery: string | null;
+  open_issues: number;
+}
+
+export interface LoadImportIn {
+  csv: string;
+}
+
+export interface LoadImportOut {
+  created: number;
+  updated: number;
+  errors: string[];
+}
+
+// --------------------------------------------------------------------------- staff roster
+
+export interface TelegramIdentityOut {
+  id: UUID;
+  tg_user_id: number;
+  display_name: string;
+  username: string | null;
+  is_staff: boolean;
+  linked_user: Ref | null;
+  last_seen_at: ISODateTime | null;
+  message_count: number;
+}
+
+/** Fields left out are unchanged; null on is_staff is a 422. */
+export interface TelegramIdentityPatchIn {
+  is_staff?: boolean | null;
+  linked_user_id?: UUID | null;
 }

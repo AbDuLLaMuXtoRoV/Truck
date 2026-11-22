@@ -41,6 +41,7 @@ class TaskCategory(StrEnum):
     DOCUMENTS = "documents"
     SAFETY_COMPLIANCE = "safety_compliance"
     HR = "hr"
+    TRAILER = "trailer"
     OTHER = "other"
 
 
@@ -53,6 +54,7 @@ CATEGORY_DEPARTMENT: dict[TaskCategory, str | None] = {
     TaskCategory.DOCUMENTS: "ACCOUNTING",
     TaskCategory.SAFETY_COMPLIANCE: "SAFETY",
     TaskCategory.HR: "HR",
+    TaskCategory.TRAILER: "TRAILER",
     TaskCategory.OTHER: None,
 }
 
@@ -156,6 +158,12 @@ class NotificationKind(StrEnum):
     REMINDER = "reminder"
     ESCALATION = "escalation"
     VERIFICATION_NEEDED = "verification_needed"
+    RESPONSE_REMINDER = "response_reminder"  # 3 min: team
+    RESPONSE_OVERDUE = "response_overdue"  # 5 min: supervisor
+    RESPONSE_ESCALATED = "response_escalated"  # 10 min: manager / owner
+    CRITICAL = "critical"  # safety-critical: immediately
+    HANDOVER = "handover"
+    COVERAGE_GAP = "coverage_gap"
 
 
 class NotificationStatus(StrEnum):

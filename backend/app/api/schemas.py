@@ -62,6 +62,11 @@ class GroupRef(_Out):
     title: str
 
 
+class MailboxRef(_Out):
+    id: uuid.UUID
+    email_address: str
+
+
 # --------------------------------------------------------------------------- auth / users
 class LoginIn(BaseModel):
     email: str = Field(min_length=3, max_length=254)
@@ -75,11 +80,18 @@ class UserOut(UserRef):
     language: Lang = "uz"
 
 
+class CompanyRef(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class MeOut(UserOut):
-    company_id: uuid.UUID
+    company_id: uuid.UUID  # the company this request is scoped to (X-Company-Id header)
     company_name: str
     company_timezone: str
     permissions: list[str]
+    home_company_id: uuid.UUID | None = None
+    companies: list[CompanyRef] = []  # every company this user may switch to
 
 
 class TokenOut(BaseModel):
@@ -158,6 +170,10 @@ class GroupOut(GroupRef):
     created_at: datetime
     message_count: int = 0
     open_tasks: int = 0
+    unanswered: int = 0
+    supervisor_id: uuid.UUID | None = None
+    manager_id: uuid.UUID | None = None
+    backup_id: uuid.UUID | None = None
 
 
 class GroupPatchIn(_Patch):
@@ -169,6 +185,10 @@ class GroupPatchIn(_Patch):
     kind: GroupKind | None = None
     truck_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
+    supervisor_id: uuid.UUID | None = None
+    manager_id: uuid.UUID | None = None
+    backup_id: uuid.UUID | None = None
+    company_id: uuid.UUID | None = None  # move to another company (needs access to both)
 
 
 # --------------------------------------------------------------------------- tasks
@@ -188,6 +208,16 @@ class TaskOut(_Out):
     truck: TruckRef | None = None
     truck_unit_raw: str | None = None
     load_ref: str | None = None
+    issue_type: str | None = None
+    amount: float | None = None
+    trailer_ref: str | None = None
+    driver_name: str | None = None
+    next_action_at: datetime | None = None
+    source_channel: Literal["telegram", "email"] | None = None
+    mailbox: MailboxRef | None = None
+    response_status: Literal["unanswered", "overdue", "answered"] | None = None
+    response_due_at: datetime | None = None  # earliest pending reply deadline (live countdown)
+    response_critical: bool = False
     assignee: UserRef | None = None
     source: TaskSource
     confidence: float | None = None
@@ -257,6 +287,8 @@ class TaskDetailOut(TaskOut):
     allowed_transitions: list[TaskStatus]
     can_edit: bool
     can_assign: bool
+    escalations: list[dict[str, Any]] = []  # EscalationOut
+    response: dict[str, Any] | None = None  # TaskResponseInfo
 
 
 class TaskCreateIn(BaseModel):
@@ -281,6 +313,11 @@ class TaskPatchIn(_Patch):
     truck_id: uuid.UUID | None = None
     load_ref: str | None = Field(default=None, max_length=64)
     due_at: datetime | None = None
+    issue_type: str | None = Field(default=None, max_length=48)
+    amount: float | None = None
+    trailer_ref: str | None = Field(default=None, max_length=32)
+    driver_name: str | None = Field(default=None, max_length=120)
+    next_action_at: datetime | None = None
 
 
 class TransitionIn(BaseModel):
@@ -331,6 +368,9 @@ class BadgesOut(BaseModel):
     overdue: int
     my_open: int
     pending_groups: int
+    unanswered: int = 0  # messages waiting for a human reply
+    overdue_responses: int = 0  # > 5 min without a reply
+    pending_handovers: int = 0  # handovers waiting for me to accept
 
 
 class TrendDay(BaseModel):

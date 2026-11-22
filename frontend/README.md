@@ -1,6 +1,9 @@
-# Smart Truck dashboard (frontend)
+# Trucking Operations CRM (frontend)
 
-Web dashboard for the Smart Truck AI Management Platform. It is a client-rendered Next.js (App Router)
+Web app of the Trucking Operations CRM: unified Telegram + Gmail inbox, a 5-minute human-response
+timer on every inbound message, escalations (3 min team, 5 min supervisor, 10 min manager/owner),
+issues tracked to resolution, shifts and handovers, and a multi-company owner view. It is a
+client-rendered Next.js (App Router)
 app with TypeScript and Tailwind CSS that talks to the FastAPI backend in `../backend`. The UI is in
 Uzbek (Latin script, default), Russian and English.
 
@@ -41,9 +44,33 @@ Sign in with a backend user (email and password). To get users, use the backend 
 `owner@demo-trucking.com`), and `python -m app.cli create-admin --email ... --password ... --company ...`
 creates a real owner account.
 
-## Simple and advanced mode
+## CRM and simple mode
 
-Everyone starts in **simple mode**, built for dispatchers, ELD staff and accountants on phones:
+Supervisors (dept leads), managers, owners, admins and viewers start in the **CRM** (the "advanced"
+mode); agents start in **simple mode**. The switch is in the avatar menu for everyone.
+
+The CRM:
+
+- **Dashboard**: KPIs (inbound messages, active / unresolved issues, overdue responses, resolved),
+  then three panes: the unified inbox, the issues table (live reply countdown in the "Response SLA"
+  column) and the issue panel (details, messages, activity, resolution; Mark as resolved / Update /
+  Escalate; escalation history). Owners also get the all-company overview strip.
+- **Company scope**: the top-bar switcher stores a company id (`localStorage` key `smart-truck.company`).
+  `lib/api.ts` sends it as `X-Company-Id` on every request. "All companies" sends nothing, so the
+  backend answers for the home company, and owners also see the all-company overview. `useApi` keys
+  its cache by company.
+- **Live timers**: reply clocks count down every second on the client from `due_at`; inbox, issues and
+  badges refresh every 15 s. The issues table takes the clock from the inbox list, because `TaskOut`
+  only carries `response_status`.
+- **Pages**: Unified Inbox (`/inbox`; thread actions: create issue, link to issue, no reply needed),
+  Issues (`/tasks`; the sidebar's department list filters it), Escalations, Companies (owner), Shifts
+  (start / end with handover, accept handovers, coverage), Reports (reply speed charts), Team &
+  Permissions (users + Telegram staff roster), Integrations (Telegram, Gmail OAuth, TMS CSV import) and
+  Settings. Google sends the browser back to `/settings?tab=integrations&gmail=connected` (or `=error`).
+- **Wording**: statuses read New, Acknowledged, In Progress, Waiting External, Resolution pending
+  approval, Resolved, Closed (not an issue); open issues with `reopen_count > 0` show "Reopened".
+
+Simple mode is built for dispatchers, ELD staff and accountants on phones:
 
 - **Plain stages**: the 8 API statuses become 4 stages: New, In work, Checking and Done. Blocked is
   "In work" plus a "Waiting" tag, and cancelled tasks are hidden. The mapping is `stage()` in `lib/stage.ts`.
@@ -63,10 +90,10 @@ Everyone starts in **simple mode**, built for dispatchers, ELD staff and account
 - **Onboarding**: a first-visit welcome card, a help panel ("?"), a "connect Telegram" banner and
   one-time tips on a card's main button. Dismissals are remembered per browser.
 
-**Advanced mode** is the full UI described below. It is a switch in the avatar menu, remembered per
-user (`localStorage` key `smart-truck.mode.<userId>`). `/tasks/{id}` works in both modes. The simple
-task page keeps everything else (properties, deadline bar, timeline, merge, all status changes) under
-"More details".
+The mode is remembered per user (`localStorage` key `smart-truck.mode.<userId>`). `/tasks/{id}` works in
+both modes. The simple task page keeps everything else (properties, deadline bar, timeline, merge, all
+status changes) under "More details". Agents also see a card with unanswered messages in their
+department, linking to the inbox.
 
 ## How it works
 
@@ -102,8 +129,9 @@ task page keeps everything else (properties, deadline bar, timeline, merge, all 
   so `npm run build` needs network access to Google Fonts.
 - **Icons**: `lucide-react` (pinned). **Charts** are hand-built SVG/HTML following the dataviz rules
   (validated palette in the tokens, table view for every chart).
-- **Shell**: collapsible sidebar with count badges (`GET /api/dashboard/badges`, refreshed on every
-  local change), breadcrumb top bar, command palette (Ctrl/⌘+K), theme and language switches.
+- **Shell** (CRM): collapsible dark sidebar with count badges (`GET /api/dashboard/badges`, polled every
+  15 s and refreshed on every local change) and an expandable department list; top bar with the product
+  name, company switcher, time range, search (Ctrl/⌘+K), theme, language, bell and profile menu.
 - Review queue keyboard shortcuts: A approve & assign, E edit, N not a task, D duplicate, J/K next/previous.
 
 ## Adding or changing text
@@ -117,9 +145,16 @@ that misses a key. Plural keys end in `_one` / `_other` (Russian also `_few` / `
 app/
   login/page.tsx            sign-in (with language switch)
   (app)/layout.tsx          signed-in shell (simple or advanced; waits for /auth/me, redirects anonymous users)
-  (app)/page.tsx            home: role home (simple) or Overview (advanced, components/AdvancedOverview.tsx)
+  (app)/page.tsx            home: role home (simple) or the CRM dashboard (components/crm/Dashboard.tsx)
+  (app)/inbox/page.tsx      unified inbox: filters, conversations with live timers, thread
+  (app)/escalations/page.tsx  escalation steps with level badges
+  (app)/companies/page.tsx  owner: per-company breakdown, new company
+  (app)/shifts/page.tsx     my shift, incoming handovers, coverage by department
+  (app)/reports/page.tsx    reply speed and issue trend charts
+  (app)/team/page.tsx       users and the Telegram staff roster
+  (app)/integrations/page.tsx Telegram, Gmail, TMS
   (app)/list/page.tsx       simple lists behind the home tiles and menu (?kind=new|doing|check|late|done|my_done)
-  (app)/settings/page.tsx   simple-mode settings (owner/admin): links to groups and trucks, mode switch
+  (app)/settings/page.tsx   settings hub (CRM) or simple settings; ?tab=integrations shows Integrations
   (app)/tasks/page.tsx      task table, filters kept in the URL query string, "New task" dialog
   (app)/tasks/[id]/page.tsx task page: simple (components/simple/SimpleTaskPage.tsx) or full detail
                             (components/AdvancedTaskDetail.tsx)
@@ -127,7 +162,9 @@ app/
   (app)/groups/page.tsx     Telegram group allow-list
   (app)/trucks/page.tsx     fleet list with open and overdue counts
 components/                 shell, language switch, badges, charts, pickers, attachments, dialogs
+components/crm/             CRM: inbox, issues pane and panel, dashboard, integrations, shared pills
 components/simple/          simple mode: shell, role homes, task cards, big buttons, onboarding and help
+lib/company.ts, lib/crm.ts  company scope + time range stores; department names, clocks, issue helpers
 lib/stage.ts, lib/mode.ts   status -> stage mapping, plain deadlines, simple actions; simple/advanced switch
 lib/types.ts                API contract types (mirror backend/app/api/schemas.py)
 lib/api.ts                  typed fetch wrapper, endpoint functions, translated error messages

@@ -15,6 +15,7 @@ class Notification(IdMixin, TenantMixin, CreatedMixin, Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
+    message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"))
     channel: Mapped[NotificationChannel] = mapped_column(String(16), default=NotificationChannel.DASHBOARD)
     kind: Mapped[NotificationKind] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(255))

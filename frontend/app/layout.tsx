@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Smart Truck", template: "%s · Smart Truck" },
-  description: "Smart Truck AI Management Platform: Telegram-sourced task tracking for dispatch and fleet teams.",
+  title: { default: "Trucking Operations CRM", template: "%s · Trucking Operations CRM" },
+  description: "Trucking Operations CRM: unified Telegram and Gmail inbox, 5-minute response SLA, escalations and issue resolution.",
 };
 
 export const viewport: Viewport = {

@@ -27,6 +27,7 @@ from app.domain.enums import (
 )
 from app.domain.truck_refs import extract_truck_refs, normalize_unit
 from app.i18n import group_text, norm_lang, t
+from app.services.response import record_staff_reply, start_clock
 from app.telegram.actions import handle_callback, linked_user, my_tasks
 from app.models import (
     Attachment,
@@ -347,7 +348,16 @@ async def _handle_message(session: AsyncSession, msg: dict, *, edited: bool) -> 
         analysis_status=AnalysisStatus.PENDING,
         transcript_status=TranscriptStatus.NOT_NEEDED,
         is_command=False,
+        channel="telegram",
+        thread_key=f"tg:{group.id}",
     )
+    staff_user = await _staff_user(session, sender)
+    if sender is not None and sender.is_bot:
+        message.sender_kind, message.direction = "bot", "inbound"
+    elif sender is not None and (sender.is_staff or staff_user is not None):
+        message.sender_kind, message.direction = "staff", "outbound"
+    else:
+        message.sender_kind, message.direction = "external", "inbound"
     if kind in (MessageKind.VOICE, MessageKind.AUDIO, MessageKind.VIDEO):
         message.transcript_status = TranscriptStatus.PENDING
     if kind == MessageKind.STICKER:
@@ -378,9 +388,38 @@ async def _handle_message(session: AsyncSession, msg: dict, *, edited: bool) -> 
             )
         return result
 
+    # 5-minute human-response SLA (blueprint sec. 7)
+    await session.flush()
+    if message.sender_kind == "staff":
+        reply_to = None
+        if message.reply_to_tg_message_id:
+            reply_to = await session.scalar(
+                select(Message).where(Message.group_id == group.id, Message.tg_message_id == message.reply_to_tg_message_id)
+            )
+        await record_staff_reply(
+            session, message,
+            answered_by_user_id=staff_user.id if staff_user else None,
+            answered_by_name=staff_user.full_name if staff_user else (sender.display_name if sender else None),
+            reply_to=reply_to,
+        )
+    elif message.sender_kind == "external":
+        await start_clock(
+            session, message, channel_name=group.title, department_id=group.department_id,
+            sender_key=str(sender.tg_user_id) if sender else None,
+            sender_name=sender.display_name if sender else None,
+        )
+
     if message.analysis_status == AnalysisStatus.PENDING:
         result.analyze_group_id = group.id
     return result
+
+
+async def _staff_user(session: AsyncSession, sender: TelegramUser | None) -> User | None:
+    """Portal user linked to this Telegram identity (roster mapping), if any."""
+    if sender is None:
+        return None
+    await session.flush()
+    return await session.scalar(select(User).where(User.telegram_user_id == sender.id, User.is_active.is_(True)))
 
 
 def _apply_edit(session: AsyncSession, existing: Message, text: str | None, msg: dict, group: TelegramGroup) -> IngestResult:

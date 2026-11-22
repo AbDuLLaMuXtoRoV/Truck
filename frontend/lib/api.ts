@@ -1,7 +1,35 @@
 /** Small typed fetch wrapper around the FastAPI backend. */
 
+import { getCompanyScope } from "./company";
 import { getLang, translate, type Key } from "./i18n";
 import type {
+  ClockOut,
+  CompanyCreateIn,
+  CompanyOut,
+  ConversationOut,
+  CoverageOut,
+  EscalationOut,
+  GmailConnectIn,
+  GmailConnectOut,
+  HandoverOut,
+  InboxQuery,
+  IntegrationsOut,
+  LoadImportOut,
+  LoadOut,
+  MailboxOut,
+  MailboxPatchIn,
+  MessageToTaskIn,
+  MyShiftOut,
+  OwnerOverviewOut,
+  ResponseStatsOut,
+  ShiftEndIn,
+  ShiftEndOut,
+  ShiftOut,
+  TelegramIdentityOut,
+  TelegramIdentityPatchIn,
+  ThreadOut,
+  UserCreateIn,
+  UserPatchIn,
   ApiErrorBody,
   AssignIn,
   CommentIn,
@@ -84,6 +112,7 @@ export class ApiError extends Error {
 /** Backend `detail.code` values that have a translated message. */
 const KNOWN_CODES = new Set([
   "invalid_credentials",
+  "too_many_attempts",
   "unauthorized",
   "forbidden",
   "not_found",
@@ -191,6 +220,8 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
   const headers: Record<string, string> = { Accept: "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  const company = getCompanyScope();
+  if (company) headers["X-Company-Id"] = company;
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
 
   const url = `${API_URL}${path}${buildQuery(opts.query)}`;
@@ -243,6 +274,8 @@ export async function requestBlob(path: string, signal?: AbortSignal): Promise<B
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  const company = getCompanyScope();
+  if (company) headers["X-Company-Id"] = company;
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, { headers, signal, cache: "no-store" });
@@ -285,6 +318,19 @@ export const paths = {
   groups: (q: GroupsQuery = {}) => `/api/groups${buildQuery(q)}`,
   notifications: (q: NotificationsQuery = {}) => `/api/notifications${buildQuery(q)}`,
   unreadCount: () => "/api/notifications/unread-count",
+  // CRM
+  companies: () => "/api/companies",
+  ownerOverview: () => "/api/owner/overview",
+  inbox: (q: InboxQuery = {}) => `/api/inbox${buildQuery(q)}`,
+  thread: (key: string) => `/api/inbox/thread${buildQuery({ key })}`,
+  responseStats: (days = 7) => `/api/dashboard/response?days=${days}`,
+  escalations: (limit = 50) => `/api/escalations?limit=${limit}`,
+  myShift: () => "/api/shifts/me",
+  coverage: () => "/api/shifts/coverage",
+  integrations: () => "/api/integrations/status",
+  mailboxes: () => "/api/mailboxes",
+  loads: (q = "") => `/api/loads${buildQuery({ q: q || undefined })}`,
+  rosterTelegram: () => "/api/roster/telegram",
 };
 
 // --------------------------------------------------------------------------- typed endpoints
@@ -323,6 +369,48 @@ export const api = {
   attachmentFile: (id: UUID, signal?: AbortSignal) => requestBlob(`/api/attachments/${encodeURIComponent(id)}/file`, signal),
 
   groups: (q: GroupsQuery = {}) => request<GroupOut[]>("GET", "/api/groups", { query: q }),
+
+  // ------------------------------------------------------------------ CRM
+  companies: () => request<CompanyOut[]>("GET", paths.companies()),
+  createCompany: (body: CompanyCreateIn) => request<CompanyOut>("POST", "/api/companies", { body }),
+  ownerOverview: () => request<OwnerOverviewOut>("GET", paths.ownerOverview()),
+
+  inbox: (q: InboxQuery = {}) => request<ConversationOut[]>("GET", "/api/inbox", { query: q }),
+  thread: (key: string) => request<ThreadOut>("GET", "/api/inbox/thread", { query: { key } }),
+  noResponse: (clockId: UUID, reason: string) =>
+    request<ClockOut>("POST", `/api/inbox/clocks/${encodeURIComponent(clockId)}/no-response`, { body: { reason } }),
+  messageToTask: (messageId: UUID, body: MessageToTaskIn) =>
+    request<TaskOut>("POST", `/api/inbox/messages/${encodeURIComponent(messageId)}/task`, { body }),
+  linkMessage: (taskId: UUID, messageId: UUID) =>
+    request<TaskDetailOut>("POST", `${paths.task(taskId)}/link-message`, { body: { message_id: messageId } }),
+  escalate: (taskId: UUID, reason: string) => request<TaskDetailOut>("POST", `${paths.task(taskId)}/escalate`, { body: { reason } }),
+
+  responseStats: (days = 7) => request<ResponseStatsOut>("GET", paths.responseStats(days)),
+  escalations: (limit = 50) => request<EscalationOut[]>("GET", paths.escalations(limit)),
+
+  myShift: () => request<MyShiftOut>("GET", paths.myShift()),
+  startShift: () => request<ShiftOut>("POST", "/api/shifts/start"),
+  endShift: (body: ShiftEndIn) => request<ShiftEndOut>("POST", "/api/shifts/end", { body }),
+  coverage: () => request<CoverageOut[]>("GET", paths.coverage()),
+  acceptHandover: (id: UUID) => request<HandoverOut>("POST", `/api/handovers/${encodeURIComponent(id)}/accept`),
+  declineHandover: (id: UUID) => request<HandoverOut>("POST", `/api/handovers/${encodeURIComponent(id)}/decline`),
+
+  integrations: () => request<IntegrationsOut>("GET", paths.integrations()),
+  mailboxes: () => request<MailboxOut[]>("GET", paths.mailboxes()),
+  patchMailbox: (id: UUID, body: MailboxPatchIn) => request<MailboxOut>("PATCH", `/api/mailboxes/${encodeURIComponent(id)}`, { body }),
+  syncMailbox: (id: UUID) => request<MailboxOut>("POST", `/api/mailboxes/${encodeURIComponent(id)}/sync`),
+  deleteMailbox: (id: UUID) => request<void>("DELETE", `/api/mailboxes/${encodeURIComponent(id)}`),
+  gmailConnect: (body: GmailConnectIn) => request<GmailConnectOut>("POST", "/api/integrations/gmail/connect", { body }),
+
+  importLoads: (csv: string) => request<LoadImportOut>("POST", "/api/loads/import", { body: { csv } }),
+  loads: (q = "") => request<LoadOut[]>("GET", paths.loads(q)),
+
+  rosterTelegram: () => request<TelegramIdentityOut[]>("GET", paths.rosterTelegram()),
+  patchTelegramIdentity: (id: UUID, body: TelegramIdentityPatchIn) =>
+    request<TelegramIdentityOut>("PATCH", `/api/roster/telegram/${encodeURIComponent(id)}`, { body }),
+
+  createUser: (body: UserCreateIn) => request<UserOut>("POST", "/api/users", { body }),
+  patchUser: (id: UUID, body: UserPatchIn) => request<UserOut>("PATCH", `/api/users/${encodeURIComponent(id)}`, { body }),
   patchGroup: (id: UUID, body: GroupPatchIn) =>
     request<GroupOut>("PATCH", `/api/groups/${encodeURIComponent(id)}`, { body }),
 };

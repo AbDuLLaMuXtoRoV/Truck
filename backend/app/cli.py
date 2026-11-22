@@ -50,6 +50,7 @@ DEPARTMENTS = [
     ("FLEET", "Fleet & Maintenance"),
     ("ACCOUNTING", "Accounting"),
     ("SAFETY", "Safety & Compliance"),
+    ("TRAILER", "Trailers"),
     ("HR", "HR"),
 ]
 
@@ -294,8 +295,11 @@ async def seed_demo(password: str = "demo12345") -> None:
             g_dispatch,
             [aziz, bekzod, sardor, disp],
         )
+        from app.demo_crm import seed_crm_demo
+
+        crm = await seed_crm_demo(session)
         await session.commit()
-    print(f"Added {history} sample tasks of history over the last 13 days.")
+    print(f"Added {history} sample tasks of history over the last 13 days; CRM demo: {crm}.")
 
     print(f"Demo data created. Login with any of these (password: {password}):")
     for email in (
@@ -528,6 +532,29 @@ async def add_demo_history() -> None:
     print(f"Added {n} sample tasks of history.")
 
 
+async def set_password(email: str, password: str) -> None:
+    """Give one account its own password (e.g. a read-only login to share with guests)."""
+    from sqlalchemy import func
+
+    async with session_factory()() as session:
+        user = await session.scalar(select(User).where(func.lower(User.email) == email.lower()))
+        if user is None:
+            sys.exit(f"No user with email {email}")
+        user.password_hash = hash_password(password)
+        await session.commit()
+    print(f"Password updated for {user.email} ({user.role}).")
+
+
+async def add_crm_demo() -> None:
+    """Add the CRM blueprint demo data (mailboxes, response clocks, companies, shifts, loads) to an existing demo DB."""
+    from app.demo_crm import seed_crm_demo
+
+    async with session_factory()() as session:
+        result = await seed_crm_demo(session)
+        await session.commit()
+    print(f"CRM demo data added: {result}")
+
+
 async def analyze(group_id: str) -> None:
     from app.services.analysis import run_group_analysis
 
@@ -542,6 +569,10 @@ def main() -> None:
     p = sub.add_parser("reset-demo")
     p.add_argument("--password", default="demo12345", help="password for all demo users")
     sub.add_parser("add-demo-history")
+    sub.add_parser("add-crm-demo")
+    p = sub.add_parser("set-password")
+    p.add_argument("--email", required=True)
+    p.add_argument("--password", required=True)
     p = sub.add_parser("create-admin")
     p.add_argument("--email", required=True)
     p.add_argument("--password", required=True)
@@ -565,6 +596,8 @@ def main() -> None:
         "init-db": lambda: init_db(),
         "reset-demo": lambda: reset_demo(args.password),
         "add-demo-history": lambda: add_demo_history(),
+        "add-crm-demo": lambda: add_crm_demo(),
+        "set-password": lambda: set_password(args.email, args.password),
         "create-admin": lambda: create_admin(args.email, args.password, args.company, args.timezone),
         "check-bot": lambda: check_bot(),
         "set-webhook": lambda: set_webhook(args.url),

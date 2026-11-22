@@ -57,6 +57,7 @@ function navFor(role: Role): SimpleNavItem[] {
 
 /** Top-bar title for pages that do not set one themselves (settings sub-pages, advanced pages). */
 const FALLBACK_TITLE: [string, Key][] = [
+  ["/inbox", "crm.nav.inbox"],
   ["/groups", "nav.groups"],
   ["/trucks", "nav.trucks"],
   ["/review", "nav.review"],
@@ -64,7 +65,7 @@ const FALLBACK_TITLE: [string, Key][] = [
 ];
 
 /** Pages that keep their wide advanced layout inside the simple frame. */
-const WIDE = ["/groups", "/trucks", "/review"];
+const WIDE = ["/groups", "/trucks", "/review", "/inbox", "/integrations", "/team", "/shifts", "/escalations", "/reports", "/companies"];
 
 function isActive(pathname: string, kind: string | null, href: string): boolean {
   const [path, query] = href.split("?");
@@ -172,7 +173,7 @@ export function SimpleShell({ children }: { children: ReactNode }) {
               <LogoMark />
               <span className="min-w-0">
                 <span className="block text-[15px] font-semibold tracking-tight text-fg">
-                  Smart<span className="text-accent-text">Truck</span>
+                  {t("crm.product_short")}
                 </span>
                 <span className="block truncate text-xs text-fg-3">{me.company_name}</span>
               </span>

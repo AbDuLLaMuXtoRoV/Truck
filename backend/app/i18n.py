@@ -84,6 +84,47 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Escalated: {code} is far past due",
     },
     "n.open_link": {"uz": "Ochish", "ru": "Открыть", "en": "Open"},
+    # --- 5-minute response SLA (blueprint sec. 7) ---------------------------------------
+    "n.resp.reminder": {
+        "uz": "⏰ 3 daqiqadan beri javob yo‘q — {channel}: {sender} «{preview}»",
+        "ru": "⏰ 3 минуты без ответа — {channel}: {sender} «{preview}»",
+        "en": "⏰ No reply for 3 min — {channel}: {sender} “{preview}”",
+    },
+    "n.resp.overdue": {
+        "uz": "🔴 5 daqiqadan beri javob yo‘q — {channel}: {sender} «{preview}»",
+        "ru": "🔴 5 минут без ответа — {channel}: {sender} «{preview}»",
+        "en": "🔴 No reply for 5 min — {channel}: {sender} “{preview}”",
+    },
+    "n.resp.escalated": {
+        "uz": "🚨 10 daqiqadan beri javob yo‘q — {channel}: {sender} «{preview}»",
+        "ru": "🚨 10 минут без ответа — {channel}: {sender} «{preview}»",
+        "en": "🚨 No reply for 10 min — {channel}: {sender} “{preview}”",
+    },
+    "n.resp.critical": {
+        "uz": "🚨 Xavfsizlik bo‘yicha shoshilinch xabar — {channel}: {sender} «{preview}»",
+        "ru": "🚨 Срочное сообщение по безопасности — {channel}: {sender} «{preview}»",
+        "en": "🚨 Safety-critical message — {channel}: {sender} “{preview}”",
+    },
+    "n.task.escalated": {
+        "uz": "⬆ {code} eskalatsiya qilindi: {title}",
+        "ru": "⬆ {code} эскалирована: {title}",
+        "en": "⬆ {code} escalated: {title}",
+    },
+    "n.handover": {
+        "uz": "{name} sizga smenani topshirmoqda: {n} ta murojaat. Qabul qiling.",
+        "ru": "{name} передаёт вам смену: заявок — {n}. Примите передачу.",
+        "en": "{name} is handing over their shift to you: {n} issues. Please accept.",
+    },
+    "n.handover_unanswered": {
+        "uz": "⚠ Smena topshiruvi 15 daqiqadan beri qabul qilinmadi: {from_name} → {to_name}",
+        "ru": "⚠ Передача смены не принята 15 минут: {from_name} → {to_name}",
+        "en": "⚠ Shift handover not accepted for 15 min: {from_name} → {to_name}",
+    },
+    "n.coverage_gap": {
+        "uz": "⚠ {dept}: hozir hech kim navbatchilikda emas",
+        "ru": "⚠ {dept}: сейчас никто не на смене",
+        "en": "⚠ {dept}: nobody is on duty right now",
+    },
     # --- bot: private chat ------------------------------------------------------------
     "bot.linked": {
         "uz": "✅ {name} hisobiga ulandi. Vazifa xabarnomalari shu yerga keladi.",

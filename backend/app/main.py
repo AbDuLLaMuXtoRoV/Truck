@@ -7,7 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api.routes import auth, dashboard, fleet, groups, messages, tasks, telegram, users
+from app.api.routes import (
+    auth,
+    companies,
+    crm,
+    dashboard,
+    fleet,
+    groups,
+    integrations,
+    messages,
+    shifts,
+    tasks,
+    telegram,
+    users,
+)
 from app.api.schemas import MetaOut
 from app.config import get_settings
 from app.core.security import PasswordTooLong
@@ -68,7 +81,7 @@ def create_app() -> FastAPI:
     async def _pw_error(_: Request, exc: PasswordTooLong):
         return JSONResponse(status_code=422, content={"detail": {"code": "password_too_long", "message": str(exc)}})
 
-    for module in (auth, users, tasks, dashboard, groups, fleet, messages, telegram):
+    for module in (auth, users, tasks, dashboard, groups, fleet, messages, telegram, crm, companies, shifts, integrations):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["meta"])

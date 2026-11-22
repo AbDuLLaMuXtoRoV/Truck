@@ -17,6 +17,7 @@ dependencies = [
     "anthropic>=2.8",
     "celery[redis]>=5.4",
     "email-validator>=2.2",
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

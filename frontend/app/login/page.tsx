@@ -3,7 +3,7 @@
 import { Lock, Mail } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
-import { LogoMark, Wordmark } from "@/components/brand";
+import { LogoMark } from "@/components/brand";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Button, ErrorBanner, Field, Skeleton, cx, inputCls } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -106,7 +106,7 @@ export default function LoginPage() {
         <div className="relative flex h-full flex-col p-12">
           <div className="flex items-center gap-3">
             <LogoMark className="size-10" />
-            <Wordmark className="text-xl text-white" />
+            <span className="text-xl font-semibold tracking-tight text-white">{t("crm.product")}</span>
           </div>
           <div className="mt-auto max-w-lg">
             <h2 className="text-4xl font-semibold leading-tight tracking-tight">{t("login.one_line")}</h2>
@@ -120,7 +120,7 @@ export default function LoginPage() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 lg:invisible">
             <LogoMark />
-            <Wordmark className="text-fg [&_span]:text-accent-text" />
+            <span className="text-[15px] font-semibold tracking-tight text-fg">{t("crm.product_short")}</span>
           </div>
           <LanguageSwitcher />
         </div>

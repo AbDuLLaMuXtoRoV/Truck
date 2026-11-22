@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BarChart3, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowRight, BarChart3, CheckCircle2, ChevronDown, ChevronRight, MessageCircleWarning } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -12,7 +12,8 @@ import type { Key } from "@/lib/i18n";
 import { setMode } from "@/lib/mode";
 import { useReference } from "@/lib/reference";
 import { plainDue, stage } from "@/lib/stage";
-import type { DashboardSummary, TaskListOut, TaskOut } from "@/lib/types";
+import type { ConversationOut, DashboardSummary, TaskListOut, TaskOut } from "@/lib/types";
+import { CountdownPill } from "../crm/parts";
 import { Avatar } from "../avatars";
 import { Skeleton, cx, focusRing } from "../ui";
 import { TelegramBanner, WelcomeCard } from "./Onboarding";
@@ -144,6 +145,7 @@ function AgentHome() {
       <Intro greeting={t("s.hello", { name: firstName(me.full_name) })} text={t("s.agent_intro")} />
       <WelcomeCard />
       <TelegramBanner />
+      <UnansweredCard />
       {open.error && !open.data ? <LoadError error={open.error} /> : null}
       {!open.data && open.loading ? <CardsSkeleton n={3} /> : null}
       {open.data && items.length === 0 ? <EmptyNote title={t("s.empty_agent_title")} text={t("s.empty_agent_text")} /> : null}
@@ -206,6 +208,50 @@ function DoneToday({ items }: { items: TaskOut[] }) {
           <p className="border-t border-line px-4 py-4 text-[15px] text-fg-3">{t("s.done_today_empty")}</p>
         )
       ) : null}
+    </section>
+  );
+}
+
+// --------------------------------------------------------------------------- agent: unanswered messages in my department
+
+/** Small card: inbound messages in my department still waiting for a human reply (hidden when none / no access). */
+function UnansweredCard() {
+  const { me } = useMe();
+  const { t } = useFmt();
+  const res = useApi<ConversationOut[]>(paths.inbox({ department_id: me.department_id ?? undefined, limit: 30 }), { refreshMs: 15000 });
+  const waiting = (res.data ?? []).filter((c) => c.unanswered > 0);
+  if (!waiting.length) return null;
+  const total = waiting.reduce((n, c) => n + c.unanswered, 0);
+  return (
+    <section className="rounded-2xl border border-orange-500/30 bg-orange-500/8 p-4" aria-labelledby="unanswered-title">
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white" aria-hidden>
+          <MessageCircleWarning className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 id="unanswered-title" className="text-base font-bold text-fg">
+            {t("s.unanswered_title", { n: total })}
+          </h3>
+          <p className="text-[15px] text-fg-2">{t("s.unanswered_hint")}</p>
+        </div>
+      </div>
+      <ul className="mt-3 space-y-2">
+        {waiting.slice(0, 3).map((c) => (
+          <li key={c.key}>
+            <Link href={`/inbox?key=${encodeURIComponent(c.key)}`} className={cx("flex items-center gap-3 rounded-xl bg-surface px-3 py-2.5 shadow-xs", focusRing)}>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold text-fg">{c.channel_name}</span>
+                <span className="block truncate text-sm text-fg-3">{c.last_message.sender_name}: {c.last_message.preview}</span>
+              </span>
+              {c.oldest_pending && c.oldest_pending.status === "pending" ? <CountdownPill clock={c.oldest_pending} size="md" /> : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <Link href="/inbox" className={cx("mt-3 inline-flex min-h-11 items-center gap-1 text-base font-semibold text-accent-text hover:underline", focusRing)}>
+        {t("s.unanswered_open")}
+        <ArrowRight className="size-4" aria-hidden />
+      </Link>
     </section>
   );
 }

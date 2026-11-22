@@ -303,3 +303,17 @@ async def test_attachment_download_permissions(client, org, db, tmp_path, monkey
         await s.commit()
     assert (await client.get(f"/api/attachments/{att_id}/file", headers=agent)).status_code == 200
     assert (await client.get(f"/api/attachments/{uuid.uuid4()}/file", headers=mgr)).status_code == 404
+
+
+async def test_login_lockout_after_five_wrong_passwords(client, org):
+    from app.api.routes import auth as auth_routes
+
+    auth_routes._failed_logins.clear()
+    body = {"email": "viewer@test-trucking.com", "password": "wrong-password"}
+    for _ in range(5):
+        assert (await client.post("/api/auth/login", json=body)).status_code == 401
+    locked = await client.post("/api/auth/login", json={**body, "password": "password123"})
+    assert locked.status_code == 429 and locked.json()["detail"]["code"] == "too_many_attempts"
+    # other accounts are unaffected
+    assert (await client.post("/api/auth/login", json={"email": "manager@test-trucking.com", "password": "password123"})).status_code == 200
+    auth_routes._failed_logins.clear()

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import (
@@ -40,7 +40,14 @@ class Task(IdMixin, TenantMixin, TimestampMixin, Base):
     truck_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trucks.id", ondelete="SET NULL"))
     truck_unit_raw: Mapped[str | None] = mapped_column(String(32))  # AI-extracted unit not in the trucks table
     driver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drivers.id", ondelete="SET NULL"))
-    load_ref: Mapped[str | None] = mapped_column(String(64))  # until `loads` exists (Phase 2)
+    load_ref: Mapped[str | None] = mapped_column(String(64))
+    load_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("loads.id", ondelete="SET NULL"))
+    # Blueprint sec. 8: AI extracts issue type, amount, load, driver, truck and trailer
+    issue_type: Mapped[str | None] = mapped_column(String(48))
+    amount: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False))
+    trailer_ref: Mapped[str | None] = mapped_column(String(32))
+    driver_name: Mapped[str | None] = mapped_column(String(120))
+    next_action_at: Mapped[datetime | None]
 
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -49,6 +56,7 @@ class Task(IdMixin, TenantMixin, TimestampMixin, Base):
     source: Mapped[TaskSource] = mapped_column(String(32), default=TaskSource.MANUAL)
     confidence: Mapped[float | None] = mapped_column(Float)
     group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("telegram_groups.id", ondelete="SET NULL"))
+    mailbox_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mailboxes.id", ondelete="SET NULL"))
     source_message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
     # Snapshot: Telegram never tells us about deletions [A3]
     source_text: Mapped[str | None] = mapped_column(Text)

@@ -16,9 +16,16 @@ from app.services.audit import record_audit
 router = APIRouter(prefix="/api", tags=["auth"])
 
 
-async def me_out(session, user: User) -> MeOut:
-    company = await session.get(Company, user.company_id)
+async def me_out(session, user: User, selected_company_id: uuid.UUID | None = None) -> MeOut:
+    from app.api.deps import accessible_company_ids
+    from app.api.schemas import CompanyRef
+
+    company = await session.get(Company, selected_company_id or user.company_id)
+    ids = await accessible_company_ids(session, user)
+    companies = (await session.scalars(select(Company).where(Company.id.in_(ids)).order_by(Company.name))).all()
     return MeOut(
+        home_company_id=user.company_id,
+        companies=[CompanyRef(id=c.id, name=c.name) for c in companies],
         id=user.id,
         full_name=user.full_name,
         role=user.role,
@@ -34,14 +41,40 @@ async def me_out(session, user: User) -> MeOut:
     )
 
 
+MAX_FAILED_LOGINS = 5
+LOCKOUT = timedelta(minutes=15)
+_failed_logins: dict[str, list] = {}
+
+
+def _recent_failures(email: str) -> list:
+    cutoff = utcnow() - LOCKOUT
+    attempts = [t for t in _failed_logins.get(email, []) if t > cutoff]
+    _failed_logins[email] = attempts
+    return attempts
+
+
 @router.post("/auth/login", response_model=TokenOut)
 async def login(body: LoginIn, session: DB, request: Request):
-    user = await session.scalar(select(User).where(func.lower(User.email) == body.email.lower()))
+    """Password login. After 5 wrong passwords an account is locked for 15 minutes (brute-force
+    protection for a publicly reachable dashboard)."""
+    email = body.email.strip().lower()
+    if len(_recent_failures(email)) >= MAX_FAILED_LOGINS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "too_many_attempts", "message": "Too many wrong passwords. Try again in 15 minutes."},
+        )
+    user = await session.scalar(select(User).where(func.lower(User.email) == email))
     if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
+        _failed_logins.setdefault(email, []).append(utcnow())
+        if user is not None:
+            record_audit(session, Actor.for_user(user), "auth.login_failed", "user", user.id,
+                         ip=request.headers.get("x-forwarded-for") or (request.client.host if request.client else None))
+            await session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "invalid_credentials", "message": "Wrong email or password"},
         )
+    _failed_logins.pop(email, None)
     user.last_login_at = utcnow()
     record_audit(
         session, Actor.for_user(user), "auth.login", "user", user.id,
@@ -52,8 +85,8 @@ async def login(body: LoginIn, session: DB, request: Request):
 
 
 @router.get("/auth/me", response_model=MeOut)
-async def me(session: DB, user: CurrentUser):
-    return await me_out(session, user)
+async def me(session: DB, user: CurrentUser, actor: CurrentActor):
+    return await me_out(session, user, actor.company_id)
 
 
 @router.patch("/me", response_model=MeOut)

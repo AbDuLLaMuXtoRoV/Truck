@@ -16,7 +16,7 @@ import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type 
 import { formatCount } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { useIsDark } from "@/lib/theme";
-import { PRIORITIES, type DepartmentLoad, type Priority, type TrendDay } from "@/lib/types";
+import { PRIORITIES, type DepartmentLoad, type Priority, type ResponseTrendDay, type TrendDay } from "@/lib/types";
 import { PriorityBadge } from "./badges";
 import { cx, focusRing } from "./ui";
 
@@ -41,9 +41,12 @@ export function KpiCard({
   icon,
   tone = "default",
   alert,
+  display,
 }: {
   label: string;
   value: number | undefined;
+  /** shown instead of the number (e.g. a duration) */
+  display?: ReactNode;
   caption?: ReactNode;
   href?: string;
   icon: ReactNode;
@@ -68,7 +71,7 @@ export function KpiCard({
         {label}
       </div>
       <div className="mt-0.5 text-[28px] font-semibold leading-tight tracking-tight text-fg">
-        {value === undefined ? "–" : formatCount(value, locale)}
+        {display ?? (value === undefined ? "–" : formatCount(value, locale))}
       </div>
       <div className="mt-1 min-h-4 truncate text-xs text-fg-3" title={typeof caption === "string" ? caption : undefined}>
         {caption}
@@ -613,5 +616,272 @@ export function Meter({ value, label, figure }: { value: number | null; label: s
         {value !== null ? <div className="h-full rounded-full bg-viz-1" style={{ width: `${pct * 100}%` }} /> : null}
       </div>
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- reply speed (CRM)
+
+/**
+ * Inbound messages per day split by how they were answered: within 5 minutes (strong step of the
+ * blue ordinal ramp), later (light step), not answered (status critical, always with its label).
+ * Stacked segments keep a 2px surface gap; only the top segment gets the 4px rounded data-end.
+ */
+export function ResponseTrendChart({ days, title, subtitle }: { days: ResponseTrendDay[]; title: string; subtitle?: string }) {
+  const { t, locale } = useT();
+  const { ref, width, height } = useWidth<HTMLDivElement>();
+  const [active, setActive] = useState<number | null>(null);
+  const fmtDay = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: "UTC" });
+  const fmtLong = new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  const dayLabel = (d: string, long = false) => (long ? fmtLong : fmtDay).format(new Date(`${d}T00:00:00Z`));
+  const rows = days.map((d) => ({
+    ...d,
+    within: d.within_sla,
+    later: Math.max(0, d.answered - d.within_sla),
+    missed: Math.max(0, d.inbound - d.answered),
+  }));
+
+  const H = Math.max(220, Math.round(height));
+  const M = { top: 14, right: 12, bottom: 26, left: 32 };
+  const plotW = Math.max(0, width - M.left - M.right);
+  const plotH = H - M.top - M.bottom;
+  const n = rows.length;
+  const band = n ? plotW / n : 0;
+  const colW = Math.max(3, Math.min(24, band * 0.56));
+  const { top, ticks } = niceScale(Math.max(1, ...rows.map((r) => r.inbound)));
+  const y = (v: number) => M.top + plotH - (v / top) * plotH;
+  const cx0 = (i: number) => M.left + band * i + band / 2;
+  const labelEvery = band < 34 ? Math.ceil(34 / Math.max(band, 1)) : 1;
+  const GAP = 2;
+
+  const SERIES = [
+    { k: "within" as const, cls: "fill-viz-p2", key: "bg-viz-p2", label: t("rchart.within") },
+    { k: "later" as const, cls: "fill-viz-p4", key: "bg-viz-p4", label: t("rchart.later") },
+    { k: "missed" as const, cls: "fill-viz-critical", key: "bg-viz-critical", label: t("rchart.missed") },
+  ];
+  const legend = SERIES.map((s) => <LegendItem key={s.k} color={s.key} label={s.label} />);
+
+  function onKey(e: KeyboardEvent<SVGSVGElement>) {
+    if (!n) return;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setActive((a) => (a === null ? 0 : Math.min(n - 1, a + 1)));
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setActive((a) => (a === null ? n - 1 : Math.max(0, a - 1)));
+    } else if (e.key === "Escape") setActive(null);
+  }
+
+  const tip: Tip | null =
+    active !== null && rows[active]
+      ? {
+          x: cx0(active),
+          y: y(rows[active].inbound),
+          title: dayLabel(rows[active].date, true),
+          rows: [
+            ...SERIES.map((s) => ({ label: s.label, value: formatCount(rows[active][s.k], locale), key: <span className={cx("size-2.5 rounded-sm", s.key)} /> })),
+            { label: t("rchart.inbound"), value: formatCount(rows[active].inbound, locale) },
+          ],
+        }
+      : null;
+
+  const table = (
+    <div className="max-h-[240px] overflow-auto">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-surface">
+          <tr className="text-left text-xs text-fg-3">
+            <th className="py-1 pr-3 font-medium">{t("trend.day")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("rchart.inbound")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("rchart.within")}</th>
+            <th className="py-1 pr-3 text-right font-medium">{t("rchart.later")}</th>
+            <th className="py-1 text-right font-medium">{t("rchart.missed")}</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {rows.map((d) => (
+            <tr key={d.date} className="border-t border-line">
+              <td className="py-1.5 pr-3 text-fg-2">{dayLabel(d.date, true)}</td>
+              <td className="py-1.5 pr-3 text-right">{d.inbound}</td>
+              <td className="py-1.5 pr-3 text-right">{d.within}</td>
+              <td className="py-1.5 pr-3 text-right">{d.later}</td>
+              <td className="py-1.5 text-right">{d.missed}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <ChartCard className="h-full" title={title} subtitle={subtitle} table={table} legend={<span className="hidden flex-wrap items-center gap-3 sm:inline-flex">{legend}</span>}>
+      <div className="mb-2 flex flex-wrap gap-3 sm:hidden">{legend}</div>
+      <div ref={ref} className="relative min-h-[220px] w-full flex-1">
+        {width > 0 && n > 0 ? (
+          <svg
+            width={width}
+            height={H}
+            className={cx("absolute inset-0 block overflow-visible rounded-md", focusRing)}
+            tabIndex={0}
+            role="img"
+            aria-label={t("rchart.aria", { n })}
+            onKeyDown={onKey}
+            onBlur={() => setActive(null)}
+            onPointerLeave={() => setActive(null)}
+          >
+            {ticks.map((v) => (
+              <g key={v}>
+                <line x1={M.left} x2={width - M.right} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--viz-axis)" : "var(--viz-grid)"} strokeWidth={1} />
+                <text x={M.left - 6} y={y(v)} dy="0.32em" textAnchor="end" className="fill-fg-3 text-[10px] tabular-nums">
+                  {v}
+                </text>
+              </g>
+            ))}
+            {rows.map((d, i) => {
+              const x = cx0(i) - colW / 2;
+              const segs = SERIES.map((s) => ({ s, h: (d[s.k] / top) * plotH })).filter((p) => p.h > 0);
+              let base = M.top + plotH;
+              return (
+                <g key={d.date} opacity={active === null || active === i ? 1 : 0.55}>
+                  {segs.map((p, j) => {
+                    // a 2px surface gap under every segment but the first; rounded end on the top one only
+                    const bottom = j > 0 ? base - GAP : base;
+                    const yTop = base - p.h;
+                    base = yTop;
+                    const h = Math.max(0, bottom - yTop);
+                    if (h <= 0) return null;
+                    const path = j === segs.length - 1 ? columnPath(x, yTop, colW, h) : `M${x},${bottom}V${yTop}H${x + colW}V${bottom}Z`;
+                    return <path key={p.s.k} d={path} className={p.s.cls} />;
+                  })}
+                  {(n - 1 - i) % labelEvery === 0 ? (
+                    <text x={cx0(i)} y={H - 8} textAnchor="middle" className="fill-fg-3 text-[10px]">
+                      {dayLabel(d.date)}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+            {rows.map((d, i) => (
+              <rect key={d.date} x={M.left + band * i} y={M.top} width={band} height={plotH} fill="transparent" onPointerMove={() => setActive(i)} />
+            ))}
+          </svg>
+        ) : null}
+        <TooltipBox tip={tip} />
+      </div>
+    </ChartCard>
+  );
+}
+
+/** Median first-reply time per day, in minutes, against the 5-minute target (one series, one axis). */
+export function MedianReplyChart({ days, title, subtitle }: { days: ResponseTrendDay[]; title: string; subtitle?: string }) {
+  const { t, locale } = useT();
+  const { ref, width, height } = useWidth<HTMLDivElement>();
+  const [active, setActive] = useState<number | null>(null);
+  const fmtDay = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: "UTC" });
+  const fmtLong = new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  const dayLabel = (d: string, long = false) => (long ? fmtLong : fmtDay).format(new Date(`${d}T00:00:00Z`));
+  const mins = (s: number | null) => (s === null ? null : Math.round((s / 60) * 10) / 10);
+  const H = Math.max(220, Math.round(height));
+  const M = { top: 14, right: 12, bottom: 26, left: 32 };
+  const plotW = Math.max(0, width - M.left - M.right);
+  const plotH = H - M.top - M.bottom;
+  const n = days.length;
+  const band = n ? plotW / n : 0;
+  const colW = Math.max(3, Math.min(24, band * 0.56));
+  const { top, ticks } = niceScale(Math.max(6, ...days.map((d) => mins(d.median_seconds) ?? 0)));
+  const y = (v: number) => M.top + plotH - (v / top) * plotH;
+  const cx0 = (i: number) => M.left + band * i + band / 2;
+  const labelEvery = band < 34 ? Math.ceil(34 / Math.max(band, 1)) : 1;
+  const fmtMin = (v: number | null) => (v === null ? "—" : t("rchart.minutes", { n: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(v) }));
+
+  const tip: Tip | null =
+    active !== null && days[active]
+      ? {
+          x: cx0(active),
+          y: y(mins(days[active].median_seconds) ?? 0),
+          title: dayLabel(days[active].date, true),
+          rows: [{ label: t("rchart.median"), value: fmtMin(mins(days[active].median_seconds)), key: <span className="size-2.5 rounded-sm bg-viz-1" /> }],
+        }
+      : null;
+
+  const table = (
+    <div className="max-h-[240px] overflow-auto">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-surface">
+          <tr className="text-left text-xs text-fg-3">
+            <th className="py-1 pr-3 font-medium">{t("trend.day")}</th>
+            <th className="py-1 text-right font-medium">{t("rchart.median")}</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {days.map((d) => (
+            <tr key={d.date} className="border-t border-line">
+              <td className="py-1.5 pr-3 text-fg-2">{dayLabel(d.date, true)}</td>
+              <td className="py-1.5 text-right">{fmtMin(mins(d.median_seconds))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  function onKey(e: KeyboardEvent<SVGSVGElement>) {
+    if (!n) return;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setActive((a) => (a === null ? 0 : Math.min(n - 1, a + 1)));
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setActive((a) => (a === null ? n - 1 : Math.max(0, a - 1)));
+    } else if (e.key === "Escape") setActive(null);
+  }
+
+  return (
+    <ChartCard className="h-full" title={title} subtitle={subtitle} table={table}>
+      <div ref={ref} className="relative min-h-[220px] w-full flex-1">
+        {width > 0 && n > 0 ? (
+          <svg
+            width={width}
+            height={H}
+            className={cx("absolute inset-0 block overflow-visible rounded-md", focusRing)}
+            tabIndex={0}
+            role="img"
+            aria-label={t("rchart.median_aria", { n })}
+            onKeyDown={onKey}
+            onBlur={() => setActive(null)}
+            onPointerLeave={() => setActive(null)}
+          >
+            {ticks.map((v) => (
+              <g key={v}>
+                <line x1={M.left} x2={width - M.right} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--viz-axis)" : "var(--viz-grid)"} strokeWidth={1} />
+                <text x={M.left - 6} y={y(v)} dy="0.32em" textAnchor="end" className="fill-fg-3 text-[10px] tabular-nums">
+                  {v}
+                </text>
+              </g>
+            ))}
+            {days.map((d, i) => {
+              const v = mins(d.median_seconds);
+              return (
+                <g key={d.date} opacity={active === null || active === i ? 1 : 0.55}>
+                  {v !== null && v > 0 ? <path d={columnPath(cx0(i) - colW / 2, y(v), colW, (v / top) * plotH)} className="fill-viz-1" /> : null}
+                  {(n - 1 - i) % labelEvery === 0 ? (
+                    <text x={cx0(i)} y={H - 8} textAnchor="middle" className="fill-fg-3 text-[10px]">
+                      {dayLabel(d.date)}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+            {/* the 5-minute target: an annotation, not a second series */}
+            <line x1={M.left} x2={width - M.right} y1={y(5)} y2={y(5)} stroke="var(--fg-3)" strokeWidth={1} strokeDasharray="4 3" />
+            <text x={width - M.right} y={y(5) - 4} textAnchor="end" className="fill-fg-2 text-[10px] font-medium">
+              {t("rchart.target")}
+            </text>
+            {days.map((d, i) => (
+              <rect key={d.date} x={M.left + band * i} y={M.top} width={band} height={plotH} fill="transparent" onPointerMove={() => setActive(i)} />
+            ))}
+          </svg>
+        ) : null}
+        <TooltipBox tip={tip} />
+      </div>
+    </ChartCard>
   );
 }

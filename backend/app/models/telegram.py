@@ -14,6 +14,7 @@ from app.domain.enums import (
     TranscriptStatus,
 )
 from app.models.base import Base, CreatedMixin, IdMixin, TenantMixin
+from app.models.crm import EscalationPolicyMixin
 
 
 class TelegramUser(IdMixin, TenantMixin, CreatedMixin, Base):
@@ -31,6 +32,8 @@ class TelegramUser(IdMixin, TenantMixin, CreatedMixin, Base):
     driver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drivers.id", ondelete="SET NULL"))
     # True once the user pressed Start in a private chat — only then can the bot DM them [A6]
     can_dm: Mapped[bool] = mapped_column(default=False)
+    # Employee roster: replies from staff stop the 5-minute response clock (blueprint sec. 4)
+    is_staff: Mapped[bool] = mapped_column(default=False)
     last_seen_at: Mapped[datetime | None]
 
     @property
@@ -41,7 +44,7 @@ class TelegramUser(IdMixin, TenantMixin, CreatedMixin, Base):
         return name or str(self.tg_user_id)
 
 
-class TelegramGroup(IdMixin, TenantMixin, CreatedMixin, Base):
+class TelegramGroup(IdMixin, TenantMixin, CreatedMixin, EscalationPolicyMixin, Base):
     __tablename__ = "telegram_groups"
 
     tg_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True)
@@ -66,13 +69,28 @@ class Message(IdMixin, TenantMixin, CreatedMixin, Base):
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("tg_chat_id", "tg_message_id"),
+        UniqueConstraint("mailbox_id", "external_id"),
         Index("ix_messages_group_sent", "group_id", "sent_at"),
         Index("ix_messages_group_analysis", "group_id", "analysis_status"),
+        Index("ix_messages_mailbox_analysis", "mailbox_id", "analysis_status"),
+        Index("ix_messages_thread_sent", "thread_key", "sent_at"),
     )
 
-    group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_groups.id", ondelete="CASCADE"))
-    tg_chat_id: Mapped[int] = mapped_column(BigInteger)
-    tg_message_id: Mapped[int] = mapped_column(BigInteger)
+    # Channel: a Telegram group OR a Gmail mailbox (blueprint sec. 6 channels)
+    channel: Mapped[str] = mapped_column(String(16), default="telegram")  # telegram | email
+    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("telegram_groups.id", ondelete="CASCADE"))
+    mailbox_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("mailboxes.id", ondelete="CASCADE"))
+    thread_key: Mapped[str | None] = mapped_column(String(160))  # tg:<group> | mail:<mailbox>:<thread>
+    external_id: Mapped[str | None] = mapped_column(String(255))  # Gmail message id
+    thread_id: Mapped[str | None] = mapped_column(String(255))  # Gmail thread id
+    subject: Mapped[str | None] = mapped_column(String(500))
+    from_address: Mapped[str | None] = mapped_column(String(320))
+    direction: Mapped[str] = mapped_column(String(16), default="inbound")  # inbound | outbound
+    sender_kind: Mapped[str] = mapped_column(String(16), default="external")  # staff | external | bot | automated
+    # actionable | informational | automated | duplicate | spam (AI or rules)
+    classification: Mapped[str | None] = mapped_column(String(16))
+    tg_chat_id: Mapped[int | None] = mapped_column(BigInteger)
+    tg_message_id: Mapped[int | None] = mapped_column(BigInteger)
     tg_thread_id: Mapped[int | None] = mapped_column(BigInteger)
     media_group_id: Mapped[str | None] = mapped_column(String(64))
     reply_to_tg_message_id: Mapped[int | None] = mapped_column(BigInteger)
@@ -94,6 +112,8 @@ class Message(IdMixin, TenantMixin, CreatedMixin, Base):
     @property
     def content_for_ai(self) -> str:
         parts: list[str] = []
+        if self.subject:
+            parts.append(f"[email subject] {self.subject}")
         if self.text:
             parts.append(self.text)
         if self.transcript:
@@ -126,8 +146,9 @@ class Attachment(IdMixin, TenantMixin, CreatedMixin, Base):
 
     message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
     kind: Mapped[MessageKind] = mapped_column(String(16))
-    tg_file_id: Mapped[str] = mapped_column(String(255))
-    tg_file_unique_id: Mapped[str] = mapped_column(String(128), index=True)
+    tg_file_id: Mapped[str | None] = mapped_column(String(255))
+    tg_file_unique_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    source_ref: Mapped[str | None] = mapped_column(String(255))  # Gmail attachment id
     mime_type: Mapped[str | None] = mapped_column(String(128))
     file_name: Mapped[str | None] = mapped_column(String(255))
     file_size: Mapped[int | None] = mapped_column(BigInteger)

@@ -1,8 +1,8 @@
 # Smart Truck AI Management Platform
 
-Finds work tasks in the company's Telegram groups (text, voice, documents; Uzbek, Russian and English), routes them to departments, tracks them to verified completion, and shows management one dashboard.
+**Unified Trucking Communications CRM.** Reads the company's Telegram groups and Gmail inboxes (Uzbek, Russian and English) and makes sure every driver, broker and customer message gets a human reply within 5 minutes, 24/7 (escalation at 3 / 5 / 10 min). AI turns messages into issues, which are tracked to verified resolution. Owners see all their companies in one place.
 
-**Docs:** [Spec review: problems found and fixes](docs/01-spec-review.md) · [Spec v1.1](docs/02-spec-v1.1.md) · [Access control](docs/03-rbac.md) · [Test plan](docs/04-test-plan.md) · [How to test it (step by step)](docs/05-testing-guide.md)
+**Docs:** [Spec review: problems found and fixes](docs/01-spec-review.md) · [Spec v1.1](docs/02-spec-v1.1.md) · [Access control](docs/03-rbac.md) · [Test plan](docs/04-test-plan.md) · [How to test it (step by step)](docs/05-testing-guide.md) · [CRM blueprint analysis](docs/06-crm-blueprint-analysis.md)
 
 ```
 backend/    FastAPI API, Telegram ingestion, AI task engine, Celery jobs, Alembic migrations, tests
@@ -49,6 +49,14 @@ Tests: `cd backend && .venv/Scripts/python -m pytest -q`
 
 There's no Telegram yet? `python -m app.cli simulate --chat-id -1001000000125 --text "Aka, 125 ELD ishlamayapti" --analyze` pushes a fake message through the real pipeline.
 
+## Gmail inboxes
+
+1. In Google Cloud Console, create a project, enable the **Gmail API**, then go to *Credentials* and create an OAuth client of type **Web application**.
+   Authorized redirect URI: `<PUBLIC_URL>/api/integrations/gmail/callback` (locally: `http://localhost:3000/api/integrations/gmail/callback`).
+   With Google Workspace, set the consent screen to **Internal**; this avoids Google's verification for the restricted `gmail.readonly` scope.
+2. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `backend/.env` and restart.
+3. Dashboard → Integrations → **Connect Gmail inbox**, then pick the department. Mail is polled every minute. Customer emails start the 5-minute response timer, and staff replies in the same thread stop it. Auto-replies never count as a reply.
+
 ## AI
 
 Set `AI_ENABLED=true` and `ANTHROPIC_API_KEY`. The default model is `claude-opus-5-5` at `AI_EFFORT=medium`, with strict structured output and the server-side refusal fallback turned on. Both model and effort are configuration, so tune them against the labelled dataset (test plan §2) rather than by guesswork. With AI off, messages are still stored and wait as `pending`, so nothing is lost. Every model call is logged in `ai_extractions` (visible at `GET /api/ai/extractions`): tokens, latency, raw output. Keep `AUTO_ASSIGN_ENABLED=false` during the pilot.
@@ -94,5 +102,6 @@ Migrations run on API start (`alembic upgrade head`). Keep the `worker-telegram`
 | Ahead of plan | New groups are auto-mapped from their title (truck number / department) but stay pending until approved; the bot announces itself |
 | Ahead of plan | Staff work entirely from Telegram: task messages carry buttons (Start · I'm done · I'm stuck · Confirm · Send back), plus `/mytasks`; same permission rules as the dashboard |
 | Ahead of plan | Simple mode (default): role-based home pages, 4 plain stages (New → In work → Checking → Done), big buttons, built-in help; the full UI remains as "Advanced mode" |
+| CRM blueprint | 5-minute response SLA (3/5/10 min ladder), unified Telegram + Gmail inbox, multi-company owner view, shift handover, staff roster, TMS loads import, issue type / amount / trailer / driver, cross-channel linking ([analysis](docs/06-crm-blueprint-analysis.md)) |
 
-Next: speech-to-text vendor comparison (voice notes are not transcribed yet), shadow mode in the pilot groups, labelling tool + eval harness, S3 storage, CI with Postgres, a permanent server.
+Next: Gmail credentials and Pub/Sub push, TMS vendor API, speech-to-text vendor comparison (voice notes are not transcribed yet), shadow mode in the pilot groups, labelling tool + eval harness, S3 storage, CI with Postgres, a permanent server.

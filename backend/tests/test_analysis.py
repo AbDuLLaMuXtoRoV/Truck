@@ -32,9 +32,13 @@ def new_task(refs=("m1",), **over):
         "title_ru": "Починить подключение ELD на траке 125",
         "summary_ru": "Водитель сообщает, что ELD не работает.",
         "category": "eld",
+        "issue_type": "eld_error",
         "priority": "P2",
         "truck_unit": "125",
+        "trailer_ref": None,
         "load_reference": None,
+        "driver_name": None,
+        "amount": None,
         "deadline_iso": None,
         "assignee_hint": None,
         "why_task": "Equipment failure blocks compliant driving.",
@@ -44,8 +48,8 @@ def new_task(refs=("m1",), **over):
     return base
 
 
-def result(new_tasks=(), updates=()):
-    return {"new_tasks": list(new_tasks), "task_updates": list(updates)}
+def result(new_tasks=(), updates=(), labels=()):
+    return {"message_labels": list(labels), "new_tasks": list(new_tasks), "task_updates": list(updates)}
 
 
 async def say(db, chat_id, text, **kw):

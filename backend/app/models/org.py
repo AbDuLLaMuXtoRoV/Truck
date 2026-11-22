@@ -33,6 +33,7 @@ class Department(IdMixin, TenantMixin, CreatedMixin, Base):
     default_assignee_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL", use_alter=True)
     )
+    coverage_alerted_at: Mapped[datetime | None]  # last "nobody on duty" alert
 
 
 class User(IdMixin, TenantMixin, CreatedMixin, Base):

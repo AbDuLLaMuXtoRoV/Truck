@@ -18,7 +18,18 @@ from app.api.schemas import (
 )
 from app.core.rbac import Actor, Perm
 from app.domain.enums import OPEN_STATUSES, AnalysisStatus, BotMembership, TaskSource, TaskStatus
-from app.models import AIExtraction, Company, Department, Message, Task, TaskEvent, TelegramGroup, utcnow
+from app.models import (
+    AIExtraction,
+    Company,
+    Department,
+    Handover,
+    Message,
+    ResponseClock,
+    Task,
+    TaskEvent,
+    TelegramGroup,
+    utcnow,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -114,11 +125,25 @@ async def badges(session: DB, actor: Actor = require(Perm.DASHBOARD_READ)):
                 TelegramGroup.bot_status.in_([BotMembership.MEMBER, BotMembership.ADMINISTRATOR]),
             )
         ) or 0
+    now = utcnow()
+    clock_scope = [ResponseClock.company_id == actor.company_id, ResponseClock.status == "pending"]
+    if not actor.has(Perm.TASKS_READ_ALL) and actor.department_id is not None:
+        clock_scope.append(ResponseClock.department_id == actor.department_id)
+    unanswered = await session.scalar(select(func.count()).select_from(ResponseClock).where(*clock_scope)) or 0
+    overdue_responses = await session.scalar(
+        select(func.count()).select_from(ResponseClock).where(*clock_scope, ResponseClock.due_at <= now)
+    ) or 0
+    pending_handovers = await session.scalar(
+        select(func.count()).select_from(Handover).where(Handover.to_user_id == actor.user_id, Handover.status == "pending")
+    ) or 0
     return BadgesOut(
         needs_review=await count(Task.status.in_([TaskStatus.DETECTED, TaskStatus.NEEDS_REVIEW])),
-        overdue=await count(open_, Task.due_at < utcnow()),
+        overdue=await count(open_, Task.due_at < now),
         my_open=await count(open_, Task.assignee_id == actor.user_id),
         pending_groups=pending_groups,
+        unanswered=unanswered,
+        overdue_responses=overdue_responses,
+        pending_handovers=pending_handovers,
     )
 
 

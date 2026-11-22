@@ -75,6 +75,60 @@ async def notify_task(
         )
 
 
+async def notify_keyed(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    user_id: uuid.UUID,
+    kind: NotificationKind,
+    title_key: str,
+    body_key: str | None = None,
+    params: dict | None = None,
+    task_id: uuid.UUID | None = None,
+    message_id: uuid.UUID | None = None,
+) -> None:
+    """Generic notification rendered in the recipient's language (dashboard + DM when linked)."""
+    user = await session.get(User, user_id)
+    if user is None or not user.is_active:
+        return
+    params = params or {}
+    title = t(title_key, user.language, **params)[:255]
+    body = t(body_key, user.language, **params) if body_key else None
+    channels = [NotificationChannel.DASHBOARD]
+    if user.telegram_user_id is not None:
+        tg_user = await session.get(TelegramUser, user.telegram_user_id)
+        if tg_user is not None and tg_user.can_dm:
+            channels.append(NotificationChannel.TELEGRAM_DM)
+    for channel in channels:
+        session.add(
+            Notification(
+                company_id=company_id,
+                user_id=user_id,
+                task_id=task_id,
+                message_id=message_id,
+                channel=channel,
+                kind=kind,
+                title=title,
+                body=body,
+            )
+        )
+
+
+async def company_executives(session: AsyncSession, company_id: uuid.UUID) -> list[uuid.UUID]:
+    """Managers and owners of a company, including owners who oversee it from another company."""
+    from app.models import UserCompanyAccess
+
+    own = await manager_ids(session, company_id)
+    cross = (
+        await session.scalars(
+            select(User.id)
+            .join(UserCompanyAccess, UserCompanyAccess.user_id == User.id)
+            .where(UserCompanyAccess.company_id == company_id, User.role == Role.OWNER, User.is_active.is_(True))
+        )
+    ).all()
+    return list(dict.fromkeys([*own, *cross]))
+
+
 async def department_lead_ids(session: AsyncSession, department_id: uuid.UUID | None) -> list[uuid.UUID]:
     if department_id is None:
         return []
