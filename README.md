@@ -101,7 +101,7 @@ Migrations run on API start (`alembic upgrade head`). Keep the `worker-telegram`
 | Ahead of plan | Uzbek, Russian and English: dashboard, notifications, bot messages and command menu; AI tasks get Uzbek and Russian titles |
 | Ahead of plan | New groups are auto-mapped from their title (truck number / department) but stay pending until approved; the bot announces itself |
 | Ahead of plan | Staff work entirely from Telegram: task messages carry buttons (Start · I'm done · I'm stuck · Confirm · Send back), plus `/mytasks`; same permission rules as the dashboard |
-| Ahead of plan | Simple mode (default): role-based home pages, 4 plain stages (New → In work → Checking → Done), big buttons, built-in help; the full UI remains as "Advanced mode" |
+| Simplest website | Three pages only (Issues · Messages · Settings), 4 plain stages (New → In work → Checking → Done), big buttons, ordinary colours; advanced screens removed from the site for now, the backend keeps all of it ([frontend/README.md](frontend/README.md)) |
 | CRM blueprint | 5-minute response SLA (3/5/10 min ladder), unified Telegram + Gmail inbox, multi-company owner view, shift handover, staff roster, TMS loads import, issue type / amount / trailer / driver, cross-channel linking ([analysis](docs/06-crm-blueprint-analysis.md)) |
 
 Next: Gmail credentials and Pub/Sub push, TMS vendor API, speech-to-text vendor comparison (voice notes are not transcribed yet), shadow mode in the pilot groups, labelling tool + eval harness, S3 storage, CI with Postgres, a permanent server.

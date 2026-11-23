@@ -1,288 +1,40 @@
 @import "tailwindcss";
 
-/* Dark mode follows a class on <html> (set before paint by the inline script in app/layout.tsx). */
-@custom-variant dark (&:where(.dark, .dark *));
+/*
+ * Plain, familiar look: white cards on a light gray page, blue buttons and links,
+ * the operating system's own font. Status colours: blue = new, yellow = in work,
+ * purple = checking, green = done, red = urgent / late / waiting too long.
+ */
 
-/* ------------------------------------------------------------------ design tokens (light) */
-:root {
-  color-scheme: light;
-
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f9fafb;
-  --surface-3: #f1f3f5;
-  --line: #e4e7ec;
-  --line-strong: #d0d5dd;
-
-  --fg: #0f1729;
-  --fg-2: #344054;
-  --fg-3: #5d6779;
-  --fg-4: #98a2b3;
-
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
-  --accent-text: #4338ca;
-  --ring: rgb(79 70 229 / 0.5);
-
-  --danger: #dc2626;
-  --danger-soft: #fef2f2;
-  --danger-text: #b42318;
-  --warning: #d97706;
-  --warning-soft: #fffaeb;
-  --warning-text: #a15c07;
-  --success: #079455;
-  --success-soft: #ecfdf3;
-  --success-text: #067647;
-  --info: #2563eb;
-  --info-soft: #eff6ff;
-  --info-text: #1d4ed8;
-  --ai: #7c3aed;
-  --ai-soft: #f5f3ff;
-  --ai-text: #6d28d9;
-
-  /* sidebar: dark navy in both themes */
-  --nav-bg: #0b1020;
-  --nav-bg-2: #131a2e;
-  --nav-line: #1d2742;
-  --nav-fg: #c9d1e4;
-  --nav-muted: #8490ad;
-  --nav-active: rgb(129 140 248 / 0.16);
-  --nav-indicator: #818cf8;
-
-  --shadow-xs: 0 1px 2px rgb(16 24 40 / 0.05);
-  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
-  --shadow-pop: 0 16px 40px -12px rgb(16 24 40 / 0.22), 0 4px 10px -4px rgb(16 24 40 / 0.08);
-
-  /* data viz (dataviz skill palette, validated against the card surface) */
-  --viz-1: #2a78d6;
-  --viz-1-soft: #86b6ef;
-  --viz-2: #eb6834;
-  --viz-critical: #d03b3b;
-  --viz-grid: #eceef2;
-  --viz-axis: #d0d5dd;
-  --viz-track: #eef0f3;
-  --viz-p1: #104281;
-  --viz-p2: #256abf;
-  --viz-p3: #5598e7;
-  --viz-p4: #86b6ef;
-}
-
-/* ------------------------------------------------------------------ design tokens (dark) */
-.dark {
-  color-scheme: dark;
-
-  --bg: #0a0d14;
-  --surface: #11151d;
-  --surface-2: #161b24;
-  --surface-3: #1c222d;
-  --line: #232a36;
-  --line-strong: #323b4a;
-
-  --fg: #e8ebf1;
-  --fg-2: #c3cad6;
-  --fg-3: #8e98a9;
-  --fg-4: #5f6878;
-
-  --accent: #5a5df0;
-  --accent-hover: #6d70f5;
-  --accent-soft: rgb(99 102 241 / 0.16);
-  --accent-text: #a5b4fc;
-  --ring: rgb(129 140 248 / 0.6);
-
-  --danger: #ef4444;
-  --danger-soft: rgb(239 68 68 / 0.13);
-  --danger-text: #fca5a5;
-  --warning: #f59e0b;
-  --warning-soft: rgb(245 158 11 / 0.13);
-  --warning-text: #fcd34d;
-  --success: #10b981;
-  --success-soft: rgb(16 185 129 / 0.13);
-  --success-text: #6ee7b7;
-  --info: #3b82f6;
-  --info-soft: rgb(59 130 246 / 0.14);
-  --info-text: #93c5fd;
-  --ai: #8b5cf6;
-  --ai-soft: rgb(139 92 246 / 0.15);
-  --ai-text: #c4b5fd;
-
-  --nav-bg: #070a12;
-  --nav-bg-2: #0f1424;
-  --nav-line: #182037;
-
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.3);
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
-  --shadow-pop: 0 20px 48px -12px rgb(0 0 0 / 0.7), 0 4px 12px -4px rgb(0 0 0 / 0.5);
-
-  --viz-1: #3987e5;
-  --viz-1-soft: #1c5cab;
-  --viz-2: #d95926;
-  --viz-grid: #20262f;
-  --viz-axis: #323b4a;
-  --viz-track: #1c222d;
-  --viz-p1: #86b6ef;
-  --viz-p2: #5598e7;
-  --viz-p3: #2a78d6;
-  --viz-p4: #184f95;
-}
-
-/* ------------------------------------------------------------------ tokens -> utilities */
-@theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
-
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-fg: var(--fg);
-  --color-fg-2: var(--fg-2);
-  --color-fg-3: var(--fg-3);
-  --color-fg-4: var(--fg-4);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-soft: var(--accent-soft);
-  --color-accent-text: var(--accent-text);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-danger-text: var(--danger-text);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
-  --color-warning-text: var(--warning-text);
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-success-text: var(--success-text);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --color-info-text: var(--info-text);
-  --color-ai: var(--ai);
-  --color-ai-soft: var(--ai-soft);
-  --color-ai-text: var(--ai-text);
-  --color-nav: var(--nav-bg);
-  --color-nav-2: var(--nav-bg-2);
-  --color-nav-line: var(--nav-line);
-  --color-nav-fg: var(--nav-fg);
-  --color-nav-muted: var(--nav-muted);
-  --color-nav-active: var(--nav-active);
-  --color-nav-indicator: var(--nav-indicator);
-
-  --color-viz-1: var(--viz-1);
-  --color-viz-1-soft: var(--viz-1-soft);
-  --color-viz-2: var(--viz-2);
-  --color-viz-critical: var(--viz-critical);
-  --color-viz-grid: var(--viz-grid);
-  --color-viz-axis: var(--viz-axis);
-  --color-viz-track: var(--viz-track);
-  --color-viz-p1: var(--viz-p1);
-  --color-viz-p2: var(--viz-p2);
-  --color-viz-p3: var(--viz-p3);
-  --color-viz-p4: var(--viz-p4);
-
-  --shadow-xs: var(--shadow-xs);
-  --shadow-card: var(--shadow-card);
-  --shadow-pop: var(--shadow-pop);
-
-  --animate-fade-in: fade-in 140ms ease-out;
-  --animate-pop-in: pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
-  --animate-slide-in-left: slide-in-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  --animate-slide-up: slide-up 180ms ease-out;
-  --animate-shimmer: shimmer 1.4s ease-in-out infinite;
-  --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
+/* in the base layer so Tailwind classes (text-gray-900 on a link, etc.) still win */
+@layer base {
+  :root {
+    color-scheme: light;
   }
-}
-@keyframes pop-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.98);
-  }
-}
-@keyframes slide-in-left {
-  from {
-    transform: translateX(-100%);
-  }
-}
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgb(220 38 38 / 0.55);
-  }
-  80%,
-  100% {
-    box-shadow: 0 0 0 6px rgb(220 38 38 / 0);
-  }
-}
 
-/* ------------------------------------------------------------------ base */
-html,
-body {
-  background: var(--bg);
-  color: var(--fg);
-}
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
 
-body {
-  font-family: var(--font-sans);
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  body {
+    margin: 0;
+    background: #f3f4f6; /* gray-100 */
+    color: #111827; /* gray-900 */
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
 
-::selection {
-  background: rgb(99 102 241 / 0.25);
-}
+  a {
+    color: #2563eb; /* blue-600 */
+  }
 
-/* Native select arrow that matches the inputs */
-select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2398a2b3'%3e%3cpath fill-rule='evenodd' d='M5.2 7.7a.75.75 0 0 1 1.06.04L10 11.6l3.74-3.87a.75.75 0 1 1 1.08 1.04l-4.28 4.43a.75.75 0 0 1-1.08 0L5.18 8.77a.75.75 0 0 1 .03-1.06Z'/%3e%3c/svg%3e");
-  background-position: right 0.45rem center;
-  background-repeat: no-repeat;
-  background-size: 1.05rem;
-}
-select option,
-select optgroup {
-  background: var(--surface);
-  color: var(--fg);
-}
+  :focus-visible {
+    outline: 3px solid #93c5fd; /* blue-300 */
+    outline-offset: 2px;
+  }
 
-/* Thin, quiet scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
-}
-
-.skeleton {
-  background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 50%, var(--surface-3) 75%);
-  background-size: 200% 100%;
-  animation: var(--animate-shimmer);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  button:disabled {
+    cursor: not-allowed;
   }
 }

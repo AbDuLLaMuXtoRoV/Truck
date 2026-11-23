@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { ToastProvider } from "@/components/toast";
 import { AuthProvider } from "@/lib/auth";
 import { HTML_LANG, useLang } from "@/lib/i18n";
 
@@ -17,10 +16,8 @@ function HtmlLang() {
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <HtmlLang />
-        {children}
-      </ToastProvider>
+      <HtmlLang />
+      {children}
     </AuthProvider>
   );
 }
